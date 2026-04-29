@@ -52,22 +52,88 @@ Dependency groups:
 - `plots`: installs `matplotlib`
 - `dev`: installs `pytest`
 
+## Main Components
+
+### `FloquetManager`
+
+`FloquetManager` is the main user-facing entry point. It combines the lower-level builders and calculators into a single interface for common Floquet workflows.
+
+Useful methods are grouped roughly as follows:
+
+- State and spectrum
+  - `diagonalize_floquet_hamiltonian`
+  - `select_floquet_state`
+  - `compute_floquet_spectrum`
+
+- Berry curvature
+  - `compute_static_berry_curvature`
+  - `compute_instantaneous_berry_curvature`
+  - `compute_perturbed_state_berry_curvature`
+
+- Current observables
+  - `compute_floquet_current`
+  - `compute_static_current`
+  - `compute_instantaneous_current`
+
+Additional helper methods are also available for perturbative and high-frequency calculations, but the methods above are the most common starting points for users of the package.
+
+### Built-in Models
+
+The package currently includes:
+- `driven_dirac_model(...)`
+- `driven_graphene_model(...)`
+- `rotating_frame_dirac_model(...)`
+
+These factories return a `DrivenBlochHamiltonian` object that can be passed into `FloquetManager`.
+
+### Configuration Dataclasses
+
+Shared configuration lives in `floquet_toolkit.config`:
+- `PhysicsParameters`
+- `DriveParameters`
+- `FloquetParameters`
+
+## Examples
+
+The `examples/` folder contains lightweight plotting examples for the built-in models. In particular, `examples/plot_spectra.py` and `examples/plot_spectra.ipynb` provide separate Dirac and graphene Floquet spectrum visualizations.
+
+## Running Tests
+
+Run the current test suite with:
+
+```bash
+pytest -q tests/test_floquet_builder.py tests/test_curvature_convergence.py
+```
+
+The current tests cover:
+- Floquet-builder convergence with respect to `n_trunc`, `n_harmonics`, and `n_time`
+- matrix-size and eigensystem consistency
+- `dk` convergence for instantaneous Berry curvature
+- `dk` convergence for numerically computed static Berry curvature
+
+
 ## Quick Start
 
 ```python
 import numpy as np
 
 from floquet_toolkit import FloquetManager
-from floquet_toolkit.config import DriveParameters, FloquetParameters, PhysicsParameters
 from floquet_toolkit.builtin_models import driven_dirac_model
+from floquet_toolkit.config import (
+    DriveParameters,
+    FloquetParameters,
+    HBAR,
+    MEV_TO_J,
+    PhysicsParameters,
+)
 
 physics_params = PhysicsParameters(
     vf=1.0e6,
-    mass=40.0e-3 * 1.60218e-19,
+    mass=40.0 * MEV_TO_J,
 )
 
 drive_params = DriveParameters(
-    omega=17.0 * 1.60218e-22 / 1.054571817e-34,
+    omega=17.0 * MEV_TO_J / HBAR,
     AL=3.0e-9,
     AR=0.0,
 )
@@ -92,58 +158,4 @@ curvature = manager.compute_instantaneous_berry_curvature(
 
 print(curvature.shape)
 ```
-
-## Main Components
-
-### `FloquetManager`
-
-`FloquetManager` is the main user-facing entry point. It wraps the lower-level builders and calculators and provides methods such as:
-- `diagonalize_floquet_hamiltonian`
-- `select_floquet_state`
-- `compute_static_berry_curvature`
-- `compute_instantaneous_berry_curvature`
-- `compute_perturbed_state_berry_curvature`
-- `compute_hfe_berry_curvature`
-- `compute_floquet_current`
-- `compute_static_current`
-- `compute_instantaneous_current`
-- `compute_hfe_current`
-
-### Built-in Models
-
-The package currently includes:
-- `driven_dirac_model(...)`
-- `driven_graphene_model(...)`
-- `rotating_frame_dirac_model(...)`
-
-These factories return a `DrivenBlochHamiltonian` object that can be passed into `FloquetManager`.
-
-### Configuration Dataclasses
-
-Shared configuration lives in `floquet_toolkit.config`:
-- `PhysicsParameters`
-- `DriveParameters`
-- `FloquetParameters`
-
-## Running Tests
-
-Run the current test suite with:
-
-```bash
-pytest -q tests/test_floquet_builder.py tests/test_curvature_convergence.py
-```
-
-The current tests cover:
-- Floquet-builder convergence with respect to `n_trunc`, `n_harmonics`, and `n_time`
-- matrix-size and eigensystem consistency
-- `dk` convergence for instantaneous Berry curvature
-- `dk` convergence for numerically computed static Berry curvature
-
-## Examples
-
-The `examples/` folder contains lightweight plotting examples for the built-in models. In particular, `examples/plot_spectra.py` and `examples/plot_spectra.ipynb` provide separate Dirac and graphene Floquet spectrum visualizations.
-
-## Status
-
-This project is currently best described as a research code package under active cleanup. The core package is installable, example plots are included, and a basic automated test suite is in place, but the public API may still evolve.
 
