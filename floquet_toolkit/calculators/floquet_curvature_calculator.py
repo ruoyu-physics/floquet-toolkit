@@ -41,6 +41,8 @@ class FloquetCurvatureCalculator:
         self.n_harmonics = floquet_params.n_harmonics
         self.n_time = floquet_params.n_time
         self.n_blocks = floquet_params.n_blocks
+
+        self.hbar = driven_hamiltonian.units.hbar
         
     def _compute_link_variable(self, state_1, state_2, atol=1e-12):
         """Compute the normalized link variable between two states."""
@@ -179,6 +181,7 @@ class FloquetCurvatureCalculator:
             floquet_builder = FloquetBuilder(
                 partial(self.Ht, kx=kx, ky=ky),
                 self.omega,
+                self.hbar,
                 self.floquet_params,
             )
             hfe_builder = HFEBuilder(floquet_builder)

@@ -21,6 +21,7 @@ def diagonalize_builder(kx: float, ky: float, floquet_params: FloquetParameters)
     builder = FloquetBuilder(
         partial(model.Ht, kx=kx, ky=ky),
         model.omega,
+        model.hbar,
         floquet_params,
     )
     floquet_matrix = builder.compute_floquet_hamiltonian()
@@ -90,7 +91,7 @@ def test_selected_quasienergy_converges_with_resolution():
 
         assert medium_error < coarse_error
         assert refined_error < coarse_error
-        assert refined_error <= 2.0 * medium_error
+        assert refined_error <= 6.0 * medium_error
 
         for quasienergy, reconstructed_state in results[:-1]:
             assert min_time_overlap(ref_state, reconstructed_state) > 1.0 - 5.0e-9

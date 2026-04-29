@@ -1,7 +1,7 @@
 """Builders for Fourier harmonics and truncated Floquet Hamiltonians."""
 
 import numpy as np
-from ..config import HBAR, FloquetParameters
+from ..config import FloquetParameters
 
 
 class FloquetBuilder:
@@ -13,16 +13,18 @@ class FloquetBuilder:
     Hamiltonian is reconstructed as ``H(t) = sum_m H_m exp(-i m omega t)``.
     """
 
-    def __init__(self, Ht, omega: float, floquet_params: FloquetParameters):
+    def __init__(self, Ht, omega: float, hbar: float, floquet_params: FloquetParameters):
         """Initialize a builder for one momentum-resolved periodic Hamiltonian.
 
         Args:
             Ht: Callable ``Ht(t)`` returning an ``N x N`` Hamiltonian matrix.
             omega: Drive angular frequency in radians per second.
+            hbar: Reduced Planck constant.
             floquet_params: Truncation and sampling parameters.
         """
         self.Ht = Ht
         self.omega = omega
+        self.hbar = hbar
         self.period = 2.0 * np.pi / omega
 
         self.floquet_params = floquet_params
@@ -77,9 +79,6 @@ class FloquetBuilder:
             for n in range(-n_trunc, n_trunc + 1):
                 idx_m = m + n_trunc
                 idx_n = n + n_trunc
-
-                row = slice(idx_m * N, (idx_m + 1) * N)
-                col = slice(idx_n * N, (idx_n + 1) * N)
     
                 harm = m - n
                 if -n_harmonics <= harm <= n_harmonics:
@@ -87,7 +86,7 @@ class FloquetBuilder:
                     F_blocks[idx_m, idx_n] = hs[hs_idx]
 
                 if m == n:
-                    F_blocks[idx_m, idx_n] -= m * HBAR * self.omega * np.eye(N)  # m ω δ_{mn}
+                    F_blocks[idx_m, idx_n] -= m * self.hbar * self.omega * np.eye(N)  # m ω δ_{mn}
 
         # Reshape to (2M+1)*N x (2M+1)*N
         F_matrix = F_blocks.transpose(0, 2, 1, 3).reshape((self.n_blocks) * N, (self.n_blocks) * N)

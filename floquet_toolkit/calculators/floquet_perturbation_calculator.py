@@ -4,7 +4,6 @@ from functools import partial
 import numpy as np
 from ..builders import FloquetBuilder
 from .floquet_state_provider import FloquetStateProvider
-from ..config import HBAR
 
 
 class FloquetPerturbationCalculator:
@@ -27,6 +26,8 @@ class FloquetPerturbationCalculator:
         self.n_blocks = floquet_params.n_blocks
         self.n_harmonics = floquet_params.n_harmonics
         self.dimension = driven_hamiltonian.dimension
+
+        self.hbar = driven_hamiltonian.units.hbar
         
 
     def build_perturbation_matrix(self, kx, ky):
@@ -42,6 +43,7 @@ class FloquetPerturbationCalculator:
         builder = FloquetBuilder(
             partial(self.driven_hamiltonian.Ht, kx=kx, ky=ky),
             self.driven_hamiltonian.omega,
+            self.hbar,
             self.floquet_params,
         )
         hs = builder.compute_fourier_harmonics()
@@ -64,7 +66,7 @@ class FloquetPerturbationCalculator:
                 harm = m - n
 
                 if m == n:
-                    H0[row, col] = hs[n_harmonics] - m * HBAR * omega * np.eye(N)
+                    H0[row, col] = hs[n_harmonics] - m * self.hbar * omega * np.eye(N)
                 elif -n_harmonics <= harm <= n_harmonics:
                     V[row, col] = hs[harm + n_harmonics]
 
@@ -101,7 +103,7 @@ class FloquetPerturbationCalculator:
             raise ValueError("order must be 0, 1, or 2")
 
         if atol is None:
-            atol = 1e-8 * HBAR * self.omega
+            atol = 1e-8 * self.hbar * self.omega
 
         H0, V = self.build_perturbation_matrix(kx, ky)
 

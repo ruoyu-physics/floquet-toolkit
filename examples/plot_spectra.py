@@ -3,27 +3,24 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from floquet_toolkit.calculators.floquet_spectrum_calculator import FloquetSpectrumCalculator
+from floquet_toolkit import DiracModel, FloquetManager, GrapheneModel, UnitConvention
 from floquet_toolkit.config import (
     DriveParameters,
     FloquetParameters,
-    HBAR,
     MEV_TO_J,
     PhysicsParameters,
 )
-from floquet_toolkit.builtin_models import (
-    GRAPHENE_BOND_LENGTH,
-    driven_dirac_model,
-    driven_graphene_model,
-)
 
 
+SI_UNITS = UnitConvention.SI_UNITS()
 DEFAULT_PHYSICS_PARAMS = PhysicsParameters(
+    units=SI_UNITS,
     vf=1.0e6,
     mass=-40.0 * MEV_TO_J,
 )
 DEFAULT_DRIVE_PARAMS = DriveParameters(
-    omega=50.0 * MEV_TO_J / HBAR,
+    units=SI_UNITS,
+    omega=50.0 * MEV_TO_J / SI_UNITS.hbar,
     AL=3.0e-9,
     AR=0.0,
 )
@@ -44,11 +41,11 @@ def plot_spectrum(
     title: str = "Floquet quasienergy spectrum",
 ):
     """Plot a Floquet quasienergy spectrum over a rectangular momentum grid."""
-    spectrum_calculator = FloquetSpectrumCalculator(model, floquet_params)
+    manager = FloquetManager(model, floquet_params)
 
     kx_values = np.linspace(*kx_range, num=num_kx)
     ky_values = np.linspace(*ky_range, num=num_ky)
-    quasi_energy, spectral_weight, band_overlaps = spectrum_calculator.compute_floquet_spectrum(
+    quasi_energy, spectral_weight, band_overlaps = manager.compute_floquet_spectrum(
         kx_values,
         ky_values,
         fold_to_zone=False,
@@ -82,10 +79,13 @@ def plot_spectrum(
 
 def plot_driven_dirac_spectrum():
     """Plot the driven Dirac Floquet spectrum near the Fermi circle."""
-    model = driven_dirac_model(DEFAULT_PHYSICS_PARAMS, DEFAULT_DRIVE_PARAMS)
+    model = DiracModel(
+        DEFAULT_PHYSICS_PARAMS,
+        DEFAULT_DRIVE_PARAMS,
+    ).to_driven_hamiltonian()
     k_radius = np.sqrt(
         DEFAULT_PHYSICS_PARAMS.e_fermi**2 - DEFAULT_PHYSICS_PARAMS.mass**2
-    ) / (HBAR * DEFAULT_PHYSICS_PARAMS.vf)
+    ) / (DEFAULT_PHYSICS_PARAMS.units.hbar * DEFAULT_PHYSICS_PARAMS.vf)
 
     plot_spectrum(
         model,
@@ -100,9 +100,13 @@ def plot_driven_dirac_spectrum():
 
 def plot_driven_graphene_spectrum():
     """Plot the driven graphene Floquet spectrum near one K point."""
-    model = driven_graphene_model(DEFAULT_PHYSICS_PARAMS, DEFAULT_DRIVE_PARAMS)
-    graphene_brillouin_zone = np.pi / GRAPHENE_BOND_LENGTH / np.sqrt(3.0)
-    kx_k_point = 4.0 * np.pi / (3.0 * np.sqrt(3.0) * GRAPHENE_BOND_LENGTH)
+    model = GrapheneModel(
+        DEFAULT_PHYSICS_PARAMS,
+        DEFAULT_DRIVE_PARAMS,
+    ).to_driven_hamiltonian()
+    lattice_spacing = DEFAULT_PHYSICS_PARAMS.lattice_spacing
+    graphene_brillouin_zone = np.pi / lattice_spacing / np.sqrt(3.0)
+    kx_k_point = 4.0 * np.pi / (3.0 * np.sqrt(3.0) * lattice_spacing)
     delta_k = 0.01 * graphene_brillouin_zone
 
     plot_spectrum(
@@ -118,3 +122,4 @@ def plot_driven_graphene_spectrum():
 
 if __name__ == "__main__":
     plot_driven_dirac_spectrum()
+    

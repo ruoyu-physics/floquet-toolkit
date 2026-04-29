@@ -5,7 +5,7 @@ from functools import partial
 import numpy as np
 
 from ..builders import FloquetBuilder, HFEBuilder
-from ..config import E_CHARGE, FloquetParameters, HBAR
+from ..config import FloquetParameters
 from ..core.driven_bloch_hamiltonian import DrivenBlochHamiltonian
 from .floquet_perturbation_calculator import FloquetPerturbationCalculator
 from .floquet_state_provider import FloquetStateProvider
@@ -36,6 +36,8 @@ class FloquetCurrentCalculator:
         self.Ht = driven_hamiltonian.Ht
         self.H_static = driven_hamiltonian.H_static
         self.omega = driven_hamiltonian.omega
+        self.e_charge = driven_hamiltonian.units.e_charge
+        self.hbar = driven_hamiltonian.units.hbar
 
     def _resolve_band_state(self, eigvals, eigvecs, band):
         """Return the eigenvector associated with a band label or index."""
@@ -64,7 +66,7 @@ class FloquetCurrentCalculator:
     def _finalize_current(self, expectation, include_charge):
         """Convert a velocity expectation into a charge current if requested."""
         if include_charge:
-            return -E_CHARGE * expectation.real
+            return -self.e_charge * expectation.real
         return expectation.real
 
     def _velocity_operator(
@@ -88,13 +90,13 @@ class FloquetCurrentCalculator:
         if time.ndim == 0:
             h_plus = hamiltonian(time, kx + delta_kx, ky + delta_ky)
             h_minus = hamiltonian(time, kx - delta_kx, ky - delta_ky)
-            return (h_plus - h_minus) / (HBAR * dk)
+            return (h_plus - h_minus) / (self.hbar * dk)
 
         velocity = []
         for t in time:
             h_plus = hamiltonian(t, kx + delta_kx, ky + delta_ky)
             h_minus = hamiltonian(t, kx - delta_kx, ky - delta_ky)
-            velocity.append((h_plus - h_minus) / (HBAR * dk))
+            velocity.append((h_plus - h_minus) / (self.hbar * dk))
         return np.asarray(velocity)
 
     def _static_hamiltonian(self, _time, kx, ky):
@@ -257,6 +259,7 @@ class FloquetCurrentCalculator:
         floquet_builder = FloquetBuilder(
             partial(self.Ht, kx=kx, ky=ky),
             self.omega,
+            self.hbar,
             self.floquet_params,
         )
         hfe_builder = HFEBuilder(floquet_builder)
@@ -268,6 +271,7 @@ class FloquetCurrentCalculator:
             builder = FloquetBuilder(
                 partial(self.Ht, kx=kx_eval, ky=ky_eval),
                 self.omega,
+                self.hbar,
                 self.floquet_params,
             )
             return HFEBuilder(builder).compute_hfe_hamiltonian(order=order)

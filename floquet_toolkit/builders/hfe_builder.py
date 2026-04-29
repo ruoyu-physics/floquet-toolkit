@@ -2,7 +2,6 @@
 
 import numpy as np
 from .floquet_builder import FloquetBuilder
-from ..config import HBAR
 
 class HFEBuilder:
     """Compute high-frequency effective Hamiltonians from Fourier harmonics.
@@ -14,6 +13,7 @@ class HFEBuilder:
     def __init__(self, floquet_builder: FloquetBuilder):
         """Store the momentum-resolved Floquet builder used by the expansion."""
         self.floquet_builder = floquet_builder
+        self.hbar = floquet_builder.hbar
 
     def _commutator(self, A: np.ndarray, B: np.ndarray) -> np.ndarray:
         """Return the matrix commutator [A, B] = AB - BA."""
@@ -44,10 +44,10 @@ class HFEBuilder:
             for m in range(1, n_harmonics + 1):
                 Hm = hs[n_harmonics + m]  # H_m
                 H_minus_m = hs[n_harmonics - m]  # H_{-m}
-                Heff += self._commutator(H_minus_m, Hm) / (m * HBAR * omega)
+                Heff += self._commutator(H_minus_m, Hm) / (m * self.hbar * omega)
 
         if order >= 2:
-            omega_scale_sq = (HBAR * omega) ** 2
+            omega_scale_sq = (self.hbar * omega) ** 2
 
             for m in range(1, n_harmonics + 1):
                 Hm = hs[n_harmonics + m]

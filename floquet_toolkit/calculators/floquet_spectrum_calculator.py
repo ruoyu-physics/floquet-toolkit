@@ -2,7 +2,6 @@
 
 import numpy as np
 from .floquet_state_provider import FloquetStateProvider
-from ..config import HBAR
 from ..config import FloquetParameters
 from ..core.driven_bloch_hamiltonian import DrivenBlochHamiltonian
 
@@ -33,9 +32,11 @@ class FloquetSpectrumCalculator:
         self.n_blocks = floquet_params.n_blocks
         self.dimension = driven_hamiltonian.dimension
 
+        self.hbar = driven_hamiltonian.units.hbar
+
     def _fold_quasi_energies(self, eigvals):
         """Fold extended-space eigenvalues into the first Floquet zone."""
-        zone_width = HBAR * self.omega
+        zone_width = self.hbar * self.omega
         return ((eigvals + 0.5 * zone_width) % zone_width) - 0.5 * zone_width
 
     def _sort_spectrum(self, eigvals, eigvecs):

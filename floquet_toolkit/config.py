@@ -1,10 +1,13 @@
-"""Shared configuration for Floquet Dirac calculations.
+"""Shared configuration for Floquet calculations.
 
-This module centralizes physical constants, model parameters, and numerical
-settings so both the analytic and numerical Floquet codes use the same values.
+This module groups together:
+- physical constants used by the built-in SI-based models
+- unit-convention metadata
+- convenience parameter dataclasses for built-in models
+- numerical solver settings
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import numpy as np
 
 
@@ -20,38 +23,121 @@ EPSILON0 = 8.85418782e-12
 MEV_TO_J = 1.60218e-22
 """Conversion factor from meV to joules."""
 
+GRAPHENE_BOND_LENGTH = 1.42e-10
+"""Nearest-neighbor carbon-carbon bond length in meters."""
+
+@dataclass(frozen=True)
+class UnitConvention:
+    """Describe how model inputs and outputs should be interpreted.
+
+    The numerical solvers operate on plain floats; this dataclass records the
+    convention attached to those numbers, including the values of
+    constants such as ``hbar`` and ``e_charge`` and human-readable unit labels.
+
+    The built-in ``UNITLESS()`` preset is not a fully generic dimensionless
+    system. It represents one specific nondimensionalization commonly used for
+    Dirac- or lattice-style models:
+    - energy in units of ``delta``
+    - length in units of ``a``
+    - momentum in units of ``1/a``
+    - time in units of ``1/delta`` with ``hbar = 1``
+    - charge in units of ``e``
+
+    Attributes:
+        name: Name of the convention.
+        hbar: Numerical value of the reduced Planck constant in the chosen
+            energy and time units.
+        e_charge: Numerical value of the elementary charge in the chosen
+            charge unit.
+        dimensionless: Whether quantities are represented as rescaled,
+            dimensionless numbers relative to named reference scales rather
+            than as direct SI-valued inputs.
+    """
+    name: str = "si"
+    hbar: float = HBAR
+    e_charge: float = E_CHARGE
+    dimensionless: bool = False
+
+    time_unit: str = "s"
+    length_unit: str = "m"
+    charge_unit: str = "C"
+    energy_unit: str = "J"
+    momentum_unit: str = "1/m"
+    hbar_unit: str = "J s"
+    
+    @classmethod
+    def SI_UNITS(cls)-> "UnitConvention":
+        """Return the standard SI convention."""
+        return cls()
+    
+    @classmethod
+    def UNITLESS(cls) -> "UnitConvention":
+        """Return the built-in nondimensionalized model convention.
+
+        This preset uses ``hbar = 1`` and ``e = 1`` with labels corresponding
+        to a specific reference-scale choice: energy in ``delta``, length in
+        ``a``, momentum in ``1/a``, and time in ``1/delta``.
+        """
+        return cls(
+            name="unitless",
+            hbar=1.0,
+            e_charge=1.0,
+            dimensionless=True,
+            time_unit="1/delta",
+            length_unit="a",
+            charge_unit="e",
+            energy_unit="delta",
+            momentum_unit="1/a",
+            hbar_unit="1"
+        )
 
 @dataclass(frozen=True)
 class PhysicsParameters:
-    """Material and static model parameters.
+    """Material and static model parameters for built-in models.
+
+    The values are interpreted in the attached ``units`` convention. The
+    default numerical values correspond to the SI preset.
 
     Attributes:
-        vf: Fermi velocity in m/s.
-        mass: Dirac mass gap in joules.
-        e_fermi: Fermi energy in joules.
+        units: Unit convention used to interpret the remaining fields.
+        vf: Characteristic Dirac velocity in the convention's length/time
+            units.
+        mass: Dirac mass gap in the convention's energy units.
+        e_fermi: Fermi energy in the convention's energy units.
+        lattice_spacing: Reference nearest-neighbor spacing used by lattice
+            built-in models, expressed in the convention's length units.
     """
 
+    units: UnitConvention = field(default_factory=UnitConvention.SI_UNITS)
     vf: float = 1.0e6
     mass: float = -40.0 * MEV_TO_J
     e_fermi: float = 65.0 * MEV_TO_J
+    lattice_spacing: float = GRAPHENE_BOND_LENGTH
 
 @dataclass(frozen=True)
 class DriveParameters:
-    """External drive parameters for time-periodic model construction.
+    """Drive parameters for built-in model construction.
+
+    The values are interpreted in the attached ``units`` convention. The
+    default numerical values correspond to the SI preset.
 
     Attributes:
-        omega: Drive angular frequency in rad/s.
-        AL: Left-circular drive component amplitude in meters.
-        AR: Right-circular drive component amplitude in meters.
+        units: Unit convention used to interpret the remaining fields.
+        omega: Drive angular frequency in inverse time units.
+        AL: Left-circular drive component amplitude in the convention's
+            length-like drive units.
+        AR: Right-circular drive component amplitude in the convention's
+            length-like drive units.
     """
 
+    units: UnitConvention = field(default_factory=UnitConvention.SI_UNITS)
     omega: float = 17.0 * MEV_TO_J / HBAR
     AL: float = 3.0e-9
     AR: float = 0.0
 
     @property
     def period(self) -> float:
-        """Return the drive period T = 2π / ω in seconds."""
+        """Return the drive period ``T = 2π / ω`` in the same time units."""
         return 2.0 * np.pi / self.omega
 
 
@@ -78,22 +164,6 @@ class FloquetParameters:
         """Return the total number of Floquet blocks, 2*n_trunc + 1."""
         return 2 * self.n_trunc + 1
 
-
-@dataclass(frozen=True)
-class PlotParameters:
-    """Sampling settings used for plotting and scans.
-
-    Attributes:
-        n_time_plot: Number of time points for time-dependent plots.
-        n_kx: Number of momentum samples along kx.
-        n_ky: Number of momentum samples along ky.
-    """
-
-    n_time_plot: int = 100
-    n_kx: int = 91
-    n_ky: int = 21
-
-
 PHYSICS_PARAMS = PhysicsParameters()
 """Default physical parameter set."""
 
@@ -102,6 +172,3 @@ DRIVE_PARAMS = DriveParameters()
 
 FLOQUET_PARAMS = FloquetParameters()
 """Default Floquet numerical parameter set."""
-
-PLOTS = PlotParameters()
-"""Default plotting and scan parameter set."""

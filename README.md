@@ -19,12 +19,12 @@ The package is designed to avoid rewriting model-specific or observable-specific
 ```text
 floquet-toolkit/
   floquet_toolkit/
+    builtin_models/
     builders/
     calculators/
     core/
     config.py
     floquet_manager.py
-    builtin_models.py
   tests/
   examples/
   pyproject.toml
@@ -84,11 +84,16 @@ Additional helper methods are also available for perturbative and high-frequency
 ### Built-in Models
 
 The package currently includes:
+- `DiracModel`
+- `GrapheneModel`
+- `RotatingFrameDiracModel`
+
+Each built-in model class can be converted into a solver-facing
+`DrivenBlochHamiltonian` with `.to_driven_hamiltonian()`. Convenience factory
+helpers are also available:
 - `driven_dirac_model(...)`
 - `driven_graphene_model(...)`
 - `rotating_frame_dirac_model(...)`
-
-These factories return a `DrivenBlochHamiltonian` object that can be passed into `FloquetManager`.
 
 Users are not limited to the built-in models. You can define your own time-periodic two-band Hamiltonian with the `DrivenBlochHamiltonian` class and then reuse the same Floquet builders, calculators, and `FloquetManager` interface.
 
@@ -126,23 +131,24 @@ The current tests cover:
 ```python
 import numpy as np
 
-from floquet_toolkit import FloquetManager
-from floquet_toolkit.builtin_models import driven_dirac_model
+from floquet_toolkit import DiracModel, FloquetManager, UnitConvention
 from floquet_toolkit.config import (
     DriveParameters,
     FloquetParameters,
-    HBAR,
-    MEV_TO_J,
     PhysicsParameters,
+    MEV_TO_J,
 )
 
+si_units = UnitConvention.SI_UNITS()
+
 physics_params = PhysicsParameters(
+    units=si_units,
     vf=1.0e6,
     mass=-40.0 * MEV_TO_J,
 )
 
 drive_params = DriveParameters(
-    omega=17.0 * MEV_TO_J / HBAR,
+    units=si_units,
     AL=3.0e-9,
     AR=0.0,
 )
@@ -153,7 +159,7 @@ floquet_params = FloquetParameters(
     n_time=61,
 )
 
-model = driven_dirac_model(physics_params, drive_params)
+model = DiracModel(physics_params, drive_params).to_driven_hamiltonian()
 manager = FloquetManager(model, floquet_params)
 
 time = np.linspace(0.0, drive_params.period, floquet_params.n_time, endpoint=False)
@@ -167,4 +173,3 @@ curvature = manager.compute_instantaneous_berry_curvature(
 
 print(curvature.shape)
 ```
-

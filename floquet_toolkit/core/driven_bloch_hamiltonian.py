@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 import numpy as np
+from ..config import UnitConvention
 
 class DrivenBlochHamiltonian:
     """Represent a 2D driven Bloch Hamiltonian ``H(k, t)``.
@@ -19,6 +20,7 @@ class DrivenBlochHamiltonian:
         H_static: Callable | None = None,
         analytic_static_berry_curvature: Callable | None = None,
         static_average_samples: int = 128,
+        units: UnitConvention = UnitConvention.SI_UNITS(),
     ):
         """Initialize and validate the driven Hamiltonian callables.
 
@@ -40,6 +42,8 @@ class DrivenBlochHamiltonian:
 
         self.Ht = H_t
         self.omega = omega
+        self.units = units
+        self.hbar = units.hbar
         self.period = 2.0 * np.pi / self.omega
         self.static_average_samples = static_average_samples
         self.analytic_static_berry_curvature = analytic_static_berry_curvature

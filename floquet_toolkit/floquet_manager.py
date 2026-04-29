@@ -29,6 +29,7 @@ class FloquetManager:
         """Create calculators for one driven Hamiltonian and Floquet setup."""
         self.driven_hamiltonian = driven_hamiltonian
         self.floquet_params = floquet_params
+        self.hbar = driven_hamiltonian.units.hbar
 
         self.floquet_curvature_calculator = FloquetCurvatureCalculator(
             driven_hamiltonian,
@@ -57,10 +58,11 @@ class FloquetManager:
         builder = FloquetBuilder(
             partial(self.floquet_curvature_calculator.Ht, kx=kx, ky=ky),
             self.floquet_curvature_calculator.omega,
+            self.hbar,
             self.floquet_params,
         )
-
-        quasi_energy, floquet_states = builder.diagonalize_floquet_hamiltonian()
+        floquet_hamiltonian = builder.compute_floquet_hamiltonian()
+        quasi_energy, floquet_states = np.linalg.eigh(floquet_hamiltonian)
         return quasi_energy, floquet_states
 
     def select_floquet_state(self, kx, ky, band: str = "conduction", mode: str = "overlap"):

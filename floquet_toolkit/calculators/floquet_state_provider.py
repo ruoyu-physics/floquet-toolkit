@@ -28,6 +28,7 @@ class FloquetStateProvider:
 
         self.n_trunc = floquet_params.n_trunc
         self.n_blocks = floquet_params.n_blocks
+        self.hbar = driven_hamiltonian.units.hbar
 
     def diagonalize_static_hamiltonian(self, kx, ky):
         """Diagonalize ``H_static(kx, ky)``.
@@ -52,6 +53,7 @@ class FloquetStateProvider:
         builder = FloquetBuilder(
             partial(self.driven_hamiltonian.Ht, kx=kx, ky=ky),
             self.omega,
+            self.hbar,
             self.floquet_params,
         )
         hamiltonian = builder.compute_floquet_hamiltonian()
