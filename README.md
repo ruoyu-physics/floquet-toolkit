@@ -97,7 +97,10 @@ Shared configuration lives in `floquet_toolkit.config`:
 
 ## Examples
 
-The `examples/` folder contains lightweight plotting examples for the built-in models. In particular, `examples/plot_spectra.py` and `examples/plot_spectra.ipynb` provide separate Dirac and graphene Floquet spectrum visualizations.
+The `examples/` folder contains lightweight plotting examples for the built-in models. Current examples include:
+
+- `examples/plot_spectra.py` and `examples/plot_spectra.ipynb` for Dirac and graphene Floquet spectrum visualizations
+- `examples/plot_dirac_curvature_vs_amplitude.py` and `examples/plot_dirac_curvature_vs_amplitude.ipynb` for scanning the time-averaged Dirac-model curvature at `k=(0,0)` versus circular-drive amplitude
 
 ## Running Tests
 
@@ -131,7 +134,7 @@ from floquet_toolkit.config import (
 
 physics_params = PhysicsParameters(
     vf=1.0e6,
-    mass=40.0 * MEV_TO_J,
+    mass=-40.0 * MEV_TO_J,
 )
 
 drive_params = DriveParameters(

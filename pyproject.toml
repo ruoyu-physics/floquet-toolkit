@@ -5,11 +5,30 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "floquet-toolkit"
 version = "0.1.0"
-description = "Toolkit for Floquet calculations in driven Dirac-style models."
+description = "Reusable toolkit for Floquet calculations in driven two-band Bloch systems."
+readme = "README.md"
 requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Ruoyu Zhang" },
+]
+keywords = ["floquet", "driven systems", "berry curvature", "dirac", "graphene"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Physics",
+]
 dependencies = [
     "numpy>=1.23",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ruoyu-physics/floquet-toolkit"
+Repository = "https://github.com/ruoyu-physics/floquet-toolkit"
+Issues = "https://github.com/ruoyu-physics/floquet-toolkit/issues"
 
 [project.optional-dependencies]
 plots = [

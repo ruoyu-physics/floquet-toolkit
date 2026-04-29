@@ -20,7 +20,7 @@ from floquet_toolkit.builtin_models import (
 
 DEFAULT_PHYSICS_PARAMS = PhysicsParameters(
     vf=1.0e6,
-    mass=10.0 * MEV_TO_J,
+    mass=-40.0 * MEV_TO_J,
 )
 DEFAULT_DRIVE_PARAMS = DriveParameters(
     omega=50.0 * MEV_TO_J / HBAR,

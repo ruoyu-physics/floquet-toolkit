@@ -32,7 +32,7 @@ class PhysicsParameters:
     """
 
     vf: float = 1.0e6
-    mass: float = 40.0 * MEV_TO_J
+    mass: float = -40.0 * MEV_TO_J
     e_fermi: float = 65.0 * MEV_TO_J
 
 @dataclass(frozen=True)
