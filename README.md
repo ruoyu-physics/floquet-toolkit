@@ -1,6 +1,6 @@
 # Floquet Toolkit
 
-`floquet_toolkit` is a small Python package for numerical Floquet calculations in driven two-band Bloch models, with an emphasis on driven Dirac Hamiltonians.
+`floquet_toolkit` is a reusable Python framework for numerical Floquet calculations in driven two-band Bloch systems, with built-in examples centered on driven Dirac and graphene-style models.
 
 It currently provides tools to:
 - build truncated Floquet Hamiltonians from time-periodic models
@@ -85,6 +85,8 @@ The package currently includes:
 - `rotating_frame_dirac_model(...)`
 
 These factories return a `DrivenBlochHamiltonian` object that can be passed into `FloquetManager`.
+
+Users are not limited to the built-in models. You can define your own time-periodic two-band Hamiltonian with the `DrivenBlochHamiltonian` class and then reuse the same Floquet builders, calculators, and `FloquetManager` interface.
 
 ### Configuration Dataclasses
 
