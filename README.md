@@ -3,12 +3,16 @@
 `floquet_toolkit` is a reusable Python framework for numerical Floquet calculations in driven two-band Bloch systems, with built-in examples centered on driven Dirac and graphene-style models.
 
 It currently provides tools to:
-- build truncated Floquet Hamiltonians from time-periodic models
+- build truncated extended space Floquet Hamiltonians from time-periodic models
 - diagonalize Floquet Hamiltonians and reconstruct time-dependent Floquet states
 - compute quasienergy spectra
-- compute Berry curvature from static, instantaneous Floquet, perturbative Floquet, and high-frequency effective descriptions
+- compute Berry curvature from static, Floquet, perturbative Floquet, and high-frequency effective descriptions
 - compute current observables for several state constructions
 - work with built-in driven Dirac and graphene-style model factories
+
+## Design Goal
+
+The package is designed to avoid rewriting model-specific or observable-specific code for each new study. New driven two-band systems can be introduced through the `DrivenBlochHamiltonian` abstraction, while new observables can be built on top of the existing Floquet builders and calculator infrastructure. In practice, this means users can reuse the same numerical machinery across different models and extend the toolkit with new calculators instead of rewiring the full codebase.
 
 ## Project Layout
 
