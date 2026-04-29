@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "floquet-toolkit"
+version = "0.1.0"
+description = "Toolkit for Floquet calculations in driven Dirac-style models."
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.23",
+]
+
+[project.optional-dependencies]
+plots = [
+    "matplotlib>=3.7",
+]
+dev = [
+    "pytest>=8",
+]
+
+[tool.setuptools.packages.find]
+include = ["floquet_toolkit*"]
