@@ -74,10 +74,10 @@ Useful methods are grouped roughly as follows:
   - `compute_instantaneous_berry_curvature`
   - `compute_perturbed_state_berry_curvature`
 
-- Current observables
-  - `compute_floquet_current`
-  - `compute_static_current`
-  - `compute_instantaneous_current`
+- Velocity observables
+  - `compute_floquet_velocity`
+  - `compute_static_velocity`
+  - `compute_adiabatic_velocity`
 
 Additional helper methods are also available for perturbative and high-frequency calculations, but the methods above are the most common starting points for users of the package.
 
@@ -100,9 +100,12 @@ Users are not limited to the built-in models. You can define your own time-perio
 ### Configuration Dataclasses
 
 Shared configuration lives in `floquet_toolkit.config`:
-- `PhysicsParameters`
 - `DriveParameters`
 - `FloquetParameters`
+
+Model-specific physical parameters live in `floquet_toolkit.builtin_models`:
+- `DiracParameters`
+- `GrapheneParameters`
 
 ## Examples
 
@@ -132,16 +135,16 @@ The current tests cover:
 import numpy as np
 
 from floquet_toolkit import DiracModel, FloquetManager, UnitConvention
+from floquet_toolkit.builtin_models import DiracParameters
 from floquet_toolkit.config import (
     DriveParameters,
     FloquetParameters,
-    PhysicsParameters,
     MEV_TO_J,
 )
 
 si_units = UnitConvention.SI_UNITS()
 
-physics_params = PhysicsParameters(
+dirac_params = DiracParameters(
     units=si_units,
     vf=1.0e6,
     mass=-40.0 * MEV_TO_J,
@@ -159,7 +162,7 @@ floquet_params = FloquetParameters(
     n_time=61,
 )
 
-model = DiracModel(physics_params, drive_params).to_driven_hamiltonian()
+model = DiracModel(dirac_params, drive_params).to_driven_hamiltonian()
 manager = FloquetManager(model, floquet_params)
 
 time = np.linspace(0.0, drive_params.period, floquet_params.n_time, endpoint=False)

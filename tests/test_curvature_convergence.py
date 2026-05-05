@@ -1,17 +1,17 @@
 import numpy as np
 
 from floquet_toolkit import FloquetManager
-from floquet_toolkit.config import DriveParameters, FloquetParameters, PhysicsParameters
-from floquet_toolkit.builtin_models import driven_dirac_model
+from floquet_toolkit.builtin_models import DiracParameters, driven_dirac_model
+from floquet_toolkit.config import DriveParameters, FloquetParameters, MEV_TO_J
 
-PHYSICS_PARAMS = PhysicsParameters()
+DIRAC_PARAMS = DiracParameters(mass=-40.0 * MEV_TO_J)
 DRIVE_PARAMS = DriveParameters(AL=3.0e-9, AR=3.0e-9)
 FLOQUET_PARAMS = FloquetParameters(n_trunc=5, n_harmonics=2, n_time=61)
 DK_VALUES = [4.0e5, 2.0e5, 1.0e5, 5.0e4]
 
 
 def build_manager() -> FloquetManager:
-    model = driven_dirac_model(PHYSICS_PARAMS, DRIVE_PARAMS)
+    model = driven_dirac_model(DIRAC_PARAMS, DRIVE_PARAMS)
     return FloquetManager(model, FLOQUET_PARAMS)
 
 

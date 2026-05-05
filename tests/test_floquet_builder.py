@@ -3,17 +3,17 @@ from functools import partial
 import numpy as np
 
 from floquet_toolkit.builders import FloquetBuilder
+from floquet_toolkit.builtin_models import DiracParameters, driven_dirac_model
 from floquet_toolkit.calculators.floquet_state_provider import FloquetStateProvider
-from floquet_toolkit.config import DriveParameters, FloquetParameters, PhysicsParameters
-from floquet_toolkit.builtin_models import driven_dirac_model
+from floquet_toolkit.config import DriveParameters, FloquetParameters
 
-PHYSICS_PARAMS = PhysicsParameters()
+DIRAC_PARAMS = DiracParameters()
 DRIVE_PARAMS = DriveParameters(AL=3.0e-9, AR=3.0e-9)
 K_POINTS = [(0.0, 0.0), (1.2e8, -0.8e8)]
 
 
 def build_model():
-    return driven_dirac_model(PHYSICS_PARAMS, DRIVE_PARAMS)
+    return driven_dirac_model(DIRAC_PARAMS, DRIVE_PARAMS)
 
 
 def diagonalize_builder(kx: float, ky: float, floquet_params: FloquetParameters):

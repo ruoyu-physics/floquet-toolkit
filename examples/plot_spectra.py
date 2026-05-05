@@ -3,26 +3,37 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from floquet_toolkit import DiracModel, FloquetManager, GrapheneModel, UnitConvention
+from floquet_toolkit import (
+    DiracModel,
+    DiracParameters,
+    FloquetManager,
+    GrapheneModel,
+    GrapheneParameters,
+    UnitConvention,
+)
 from floquet_toolkit.config import (
     DriveParameters,
     FloquetParameters,
     MEV_TO_J,
-    PhysicsParameters,
 )
 
 
 SI_UNITS = UnitConvention.SI_UNITS()
-DEFAULT_PHYSICS_PARAMS = PhysicsParameters(
+DEFAULT_DIRAC_PARAMS = DiracParameters(
     units=SI_UNITS,
     vf=1.0e6,
-    mass=-40.0 * MEV_TO_J,
+    mass=-10.0 * MEV_TO_J,
 )
+DEFAULT_GRAPHENE_PARAMS = GrapheneParameters(
+    units=SI_UNITS,
+    vf=1.0e6,
+)
+
 DEFAULT_DRIVE_PARAMS = DriveParameters(
     units=SI_UNITS,
     omega=50.0 * MEV_TO_J / SI_UNITS.hbar,
-    AL=3.0e-9,
-    AR=0.0,
+    AL=5.0e-9,
+    AR=0,
 )
 DEFAULT_FLOQUET_PARAMS = FloquetParameters(
     n_harmonics=3,
@@ -80,12 +91,12 @@ def plot_spectrum(
 def plot_driven_dirac_spectrum():
     """Plot the driven Dirac Floquet spectrum near the Fermi circle."""
     model = DiracModel(
-        DEFAULT_PHYSICS_PARAMS,
+        DEFAULT_DIRAC_PARAMS,
         DEFAULT_DRIVE_PARAMS,
     ).to_driven_hamiltonian()
     k_radius = np.sqrt(
-        DEFAULT_PHYSICS_PARAMS.e_fermi**2 - DEFAULT_PHYSICS_PARAMS.mass**2
-    ) / (DEFAULT_PHYSICS_PARAMS.units.hbar * DEFAULT_PHYSICS_PARAMS.vf)
+        DEFAULT_DIRAC_PARAMS.e_fermi**2 - DEFAULT_DIRAC_PARAMS.mass**2
+    ) / (DEFAULT_DIRAC_PARAMS.units.hbar * DEFAULT_DIRAC_PARAMS.vf)
 
     plot_spectrum(
         model,
@@ -101,10 +112,10 @@ def plot_driven_dirac_spectrum():
 def plot_driven_graphene_spectrum():
     """Plot the driven graphene Floquet spectrum near one K point."""
     model = GrapheneModel(
-        DEFAULT_PHYSICS_PARAMS,
+        DEFAULT_GRAPHENE_PARAMS,
         DEFAULT_DRIVE_PARAMS,
     ).to_driven_hamiltonian()
-    lattice_spacing = DEFAULT_PHYSICS_PARAMS.lattice_spacing
+    lattice_spacing = DEFAULT_GRAPHENE_PARAMS.lattice_spacing
     graphene_brillouin_zone = np.pi / lattice_spacing / np.sqrt(3.0)
     kx_k_point = 4.0 * np.pi / (3.0 * np.sqrt(3.0) * lattice_spacing)
     delta_k = 0.01 * graphene_brillouin_zone

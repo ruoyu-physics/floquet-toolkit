@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..config import DriveParameters, PhysicsParameters
+from ..config import DriveParameters
 from ..core.driven_bloch_hamiltonian import DrivenBlochHamiltonian
-from .base import BuiltinDrivenModelSpec
-from .dirac import SIGMA_X, SIGMA_Y, SIGMA_Z
+from ..utils import vector_potential_components
+from .base_model import BuiltinDrivenModelSpec
+from .dirac import DiracParameters, SIGMA_X, SIGMA_Y, SIGMA_Z
 
 
 class RotatingFrameDiracModel(BuiltinDrivenModelSpec):
@@ -15,10 +16,9 @@ class RotatingFrameDiracModel(BuiltinDrivenModelSpec):
 
     def __post_init__(self):
         super().__post_init__()
-        self.mass = self.physics_params.mass
-        self.vf = self.physics_params.vf
-        self.AL = self.drive_params.AL
-        self.AR = self.drive_params.AR
+        self.mass = self.model_params.mass
+        self.vf = self.model_params.vf
+        self.e_fermi = self.model_params.e_fermi
 
     def H_static(self, kx: float, ky: float) -> np.ndarray:
         """Return the static rotating-frame Dirac Hamiltonian."""
@@ -33,8 +33,13 @@ class RotatingFrameDiracModel(BuiltinDrivenModelSpec):
             ]
         )
         k_vector = np.array([kx, ky], dtype=float)
-        ax = (self.AL + self.AR) / np.sqrt(2.0) * np.cos(self.omega * t)
-        ay = (self.AL - self.AR) / np.sqrt(2.0) * np.sin(self.omega * t)
+        ax, ay = vector_potential_components(
+            t,
+            self.omega,
+            self.AL,
+            self.AR,
+            self.polarization_axis,
+        )
         a_vector = np.array([ax, ay], dtype=float)
 
         rotated_k = rotation_matrix @ (k_vector - self.e_charge * a_vector / self.hbar)
@@ -57,12 +62,11 @@ class RotatingFrameDiracModel(BuiltinDrivenModelSpec):
 
 
 def rotating_frame_dirac_model(
-    physics_params: PhysicsParameters,
+    model_params: DiracParameters,
     drive_params: DriveParameters,
 ):
     """Create a built-in rotating-frame Dirac model."""
     return RotatingFrameDiracModel(
-        physics_params,
+        model_params,
         drive_params,
     ).to_driven_hamiltonian()
-

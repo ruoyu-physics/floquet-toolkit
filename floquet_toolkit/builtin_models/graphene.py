@@ -2,11 +2,23 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import numpy as np
 
-from ..config import DriveParameters, PhysicsParameters
+from ..config import DriveParameters, GRAPHENE_BOND_LENGTH, MEV_TO_J, UnitConvention
 from ..core.driven_bloch_hamiltonian import DrivenBlochHamiltonian
-from .base import BuiltinDrivenModelSpec
+from ..utils import vector_potential_components
+from .base_model import BuiltinDrivenModelSpec
+
+
+@dataclass(frozen=True)
+class GrapheneParameters:
+    """Physical parameters for the built-in graphene tight-binding model."""
+
+    units: UnitConvention = field(default_factory=UnitConvention.SI_UNITS)
+    vf: float = 1.0e6
+    lattice_spacing: float = GRAPHENE_BOND_LENGTH
+    e_fermi: float = 30.0 * MEV_TO_J
 
 
 class GrapheneModel(BuiltinDrivenModelSpec):
@@ -15,10 +27,9 @@ class GrapheneModel(BuiltinDrivenModelSpec):
     def __post_init__(self):
         super().__post_init__()
         self.mass = 0.0
-        self.vf = self.physics_params.vf
-        self.AL = self.drive_params.AL
-        self.AR = self.drive_params.AR
-        self.lattice_spacing = self.physics_params.lattice_spacing
+        self.vf = self.model_params.vf
+        self.e_fermi = self.model_params.e_fermi
+        self.lattice_spacing = self.model_params.lattice_spacing
 
         self.hopping = 2.0 * self.hbar * self.vf / (3.0 * self.lattice_spacing)
         delta_1 = self.lattice_spacing * np.array([0.0, 1.0])
@@ -44,9 +55,14 @@ class GrapheneModel(BuiltinDrivenModelSpec):
         )
 
     def H_t(self, t: float, kx: float, ky: float) -> np.ndarray:
-        """Return the full time-dependent graphene Hamiltonian."""
-        ax = (self.AL + self.AR) / np.sqrt(2.0) * np.cos(self.omega * t)
-        ay = (self.AL - self.AR) / np.sqrt(2.0) * np.sin(self.omega * t)
+        """Return the full time-dependent graphene Hamiltonian with k - qA/hbar."""
+        ax, ay = vector_potential_components(
+            t,
+            self.omega,
+            self.AL,
+            self.AR,
+            self.polarization_axis,
+        )
         shifted_kx = kx - self.e_charge / self.hbar * ax
         shifted_ky = ky - self.e_charge / self.hbar * ay
         return self.H_static(shifted_kx, shifted_ky)
@@ -63,9 +79,8 @@ class GrapheneModel(BuiltinDrivenModelSpec):
 
 
 def driven_graphene_model(
-    physics_params: PhysicsParameters,
+    model_params: GrapheneParameters,
     drive_params: DriveParameters,
 ):
     """Create a built-in driven graphene model."""
-    return GrapheneModel(physics_params, drive_params).to_driven_hamiltonian()
-
+    return GrapheneModel(model_params, drive_params).to_driven_hamiltonian()

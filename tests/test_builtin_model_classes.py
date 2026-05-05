@@ -2,23 +2,26 @@ import numpy as np
 
 from floquet_toolkit import (
     DiracModel,
+    DiracParameters,
     FloquetManager,
     GrapheneModel,
+    GrapheneParameters,
     RotatingFrameDiracModel,
 )
-from floquet_toolkit.config import DriveParameters, FloquetParameters, PhysicsParameters
+from floquet_toolkit.config import DriveParameters, FloquetParameters
 
 
-PHYSICS_PARAMS = PhysicsParameters()
+DIRAC_PARAMS = DiracParameters()
+GRAPHENE_PARAMS = GrapheneParameters()
 DRIVE_PARAMS = DriveParameters(AL=3.0e-9, AR=0.0)
 FLOQUET_PARAMS = FloquetParameters(n_trunc=3, n_harmonics=1, n_time=21)
 
 
 def test_builtin_model_classes_convert_to_driven_hamiltonians():
-    dirac = DiracModel(PHYSICS_PARAMS, DRIVE_PARAMS).to_driven_hamiltonian()
-    graphene = GrapheneModel(PHYSICS_PARAMS, DRIVE_PARAMS).to_driven_hamiltonian()
+    dirac = DiracModel(DIRAC_PARAMS, DRIVE_PARAMS).to_driven_hamiltonian()
+    graphene = GrapheneModel(GRAPHENE_PARAMS, DRIVE_PARAMS).to_driven_hamiltonian()
     rotating = RotatingFrameDiracModel(
-        PHYSICS_PARAMS,
+        DIRAC_PARAMS,
         DRIVE_PARAMS,
     ).to_driven_hamiltonian()
 
@@ -26,11 +29,11 @@ def test_builtin_model_classes_convert_to_driven_hamiltonians():
         sample = model.Ht(0.0, 0.0, 0.0)
         assert sample.shape == (2, 2)
         assert np.allclose(sample, sample.conj().T)
-        assert model.units == PHYSICS_PARAMS.units
+        assert model.units == DRIVE_PARAMS.units
 
 
 def test_floquet_manager_diagonalize_floquet_hamiltonian_returns_square_eigensystem():
-    model = DiracModel(PHYSICS_PARAMS, DRIVE_PARAMS).to_driven_hamiltonian()
+    model = DiracModel(DIRAC_PARAMS, DRIVE_PARAMS).to_driven_hamiltonian()
     manager = FloquetManager(model, FLOQUET_PARAMS)
 
     quasi_energy, floquet_states = manager.diagonalize_floquet_hamiltonian(0.0, 0.0)

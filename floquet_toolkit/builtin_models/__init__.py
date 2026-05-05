@@ -1,8 +1,8 @@
 """Built-in driven model classes and factory helpers."""
 
-from .base import BuiltinDrivenModelSpec, resolve_units
-from .dirac import DiracModel, driven_dirac_model
-from .graphene import GrapheneModel, driven_graphene_model
+from .base_model import BuiltinDrivenModelSpec, resolve_units
+from .dirac import DiracModel, DiracParameters, driven_dirac_model
+from .graphene import GrapheneModel, GrapheneParameters, driven_graphene_model
 from .rotating_frame_dirac import (
     RotatingFrameDiracModel,
     rotating_frame_dirac_model,
@@ -11,6 +11,8 @@ from .rotating_frame_dirac import (
 __all__ = [
     "BuiltinDrivenModelSpec",
     "resolve_units",
+    "DiracParameters",
+    "GrapheneParameters",
     "DiracModel",
     "GrapheneModel",
     "RotatingFrameDiracModel",
@@ -18,4 +20,3 @@ __all__ = [
     "driven_graphene_model",
     "rotating_frame_dirac_model",
 ]
-

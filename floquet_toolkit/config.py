@@ -3,7 +3,7 @@
 This module groups together:
 - physical constants used by the built-in SI-based models
 - unit-convention metadata
-- convenience parameter dataclasses for built-in models
+- drive parameter configuration
 - numerical solver settings
 """
 
@@ -14,8 +14,8 @@ import numpy as np
 HBAR = 1.054571817e-34
 """Reduced Planck constant in joule-seconds."""
 
-E_CHARGE = 1.60217663e-19
-"""Elementary charge in coulombs."""
+E_CHARGE = -1.60217663e-19
+"""Electron charge in coulombs."""
 
 EPSILON0 = 8.85418782e-12
 """Vacuum permittivity in C^2 / (J m)."""
@@ -92,29 +92,6 @@ class UnitConvention:
         )
 
 @dataclass(frozen=True)
-class PhysicsParameters:
-    """Material and static model parameters for built-in models.
-
-    The values are interpreted in the attached ``units`` convention. The
-    default numerical values correspond to the SI preset.
-
-    Attributes:
-        units: Unit convention used to interpret the remaining fields.
-        vf: Characteristic Dirac velocity in the convention's length/time
-            units.
-        mass: Dirac mass gap in the convention's energy units.
-        e_fermi: Fermi energy in the convention's energy units.
-        lattice_spacing: Reference nearest-neighbor spacing used by lattice
-            built-in models, expressed in the convention's length units.
-    """
-
-    units: UnitConvention = field(default_factory=UnitConvention.SI_UNITS)
-    vf: float = 1.0e6
-    mass: float = -40.0 * MEV_TO_J
-    e_fermi: float = 65.0 * MEV_TO_J
-    lattice_spacing: float = GRAPHENE_BOND_LENGTH
-
-@dataclass(frozen=True)
 class DriveParameters:
     """Drive parameters for built-in model construction.
 
@@ -128,12 +105,16 @@ class DriveParameters:
             length-like drive units.
         AR: Right-circular drive component amplitude in the convention's
             length-like drive units.
+        polarization_axis: Unit-axis choice for the drive-frame x direction in
+            the lab frame. This sets the orientation of linearly polarized
+            drives and rotates the ellipse axes for general ``AL``/``AR``.
     """
 
     units: UnitConvention = field(default_factory=UnitConvention.SI_UNITS)
     omega: float = 17.0 * MEV_TO_J / HBAR
     AL: float = 3.0e-9
     AR: float = 0.0
+    polarization_axis: tuple[float, float] | str = (1.0, 0.0)
 
     @property
     def period(self) -> float:
@@ -163,9 +144,6 @@ class FloquetParameters:
     def n_blocks(self) -> int:
         """Return the total number of Floquet blocks, 2*n_trunc + 1."""
         return 2 * self.n_trunc + 1
-
-PHYSICS_PARAMS = PhysicsParameters()
-"""Default physical parameter set."""
 
 DRIVE_PARAMS = DriveParameters()
 """Default drive parameter set."""

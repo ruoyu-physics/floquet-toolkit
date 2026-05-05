@@ -3,6 +3,6 @@
 from .floquet_curvature_calculator import FloquetCurvatureCalculator
 from .floquet_spectrum_calculator import FloquetSpectrumCalculator
 from .floquet_perturbation_calculator import FloquetPerturbationCalculator
-from .floquet_current_calculator import FloquetCurrentCalculator
+from .floquet_velocity_calculator import FloquetVelocityCalculator
 from .floquet_state_provider import FloquetStateProvider
 from .floquet_berry_phase_calculator import FloquetBerryPhaseCalculator

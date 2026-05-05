@@ -3,16 +3,15 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from floquet_toolkit import DiracModel, FloquetManager, UnitConvention
+from floquet_toolkit import DiracModel, DiracParameters, FloquetManager, UnitConvention
 from floquet_toolkit.config import (
     DriveParameters,
     FloquetParameters,
     MEV_TO_J,
-    PhysicsParameters,
 )
 
 SI_UNITS = UnitConvention.SI_UNITS()
-DEFAULT_PHYSICS_PARAMS = PhysicsParameters(
+DEFAULT_DIRAC_PARAMS = DiracParameters(
     units=SI_UNITS,
     vf=1.0e6,
     mass=-40.0 * MEV_TO_J,
@@ -40,7 +39,7 @@ def compute_time_averaged_curvature_vs_drive_amplitude(
             AR=float(amplitude),
         )
         model = DiracModel(
-            DEFAULT_PHYSICS_PARAMS,
+            DEFAULT_DIRAC_PARAMS,
             drive_params,
         ).to_driven_hamiltonian()
         manager = FloquetManager(model, DEFAULT_FLOQUET_PARAMS)

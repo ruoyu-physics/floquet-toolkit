@@ -191,3 +191,4 @@ class FloquetCurvatureCalculator:
             return eigvecs[:, band_index]
 
         return self._compute_berry_curvature(eff_state, kx, ky, band=band, dk=dk)
+    

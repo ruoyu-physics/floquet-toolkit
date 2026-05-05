@@ -4,7 +4,7 @@ from functools import partial
 import numpy as np
 from .core.driven_bloch_hamiltonian import DrivenBlochHamiltonian
 from .calculators import (
-    FloquetCurrentCalculator,
+    FloquetVelocityCalculator,
     FloquetCurvatureCalculator,
     FloquetPerturbationCalculator,
     FloquetSpectrumCalculator,
@@ -35,7 +35,7 @@ class FloquetManager:
             driven_hamiltonian,
             floquet_params,
         )
-        self.floquet_current_calculator = FloquetCurrentCalculator(
+        self.floquet_velocity_calculator = FloquetVelocityCalculator(
             driven_hamiltonian,
             floquet_params,
         )
@@ -125,7 +125,7 @@ class FloquetManager:
             order=order,
         )
 
-    def compute_floquet_current(
+    def compute_floquet_velocity(
         self,
         time,
         kx,
@@ -135,8 +135,8 @@ class FloquetManager:
         dk: float = 1e5,
         include_charge: bool = False,
     ):
-        """Compute current from the selected exact Floquet mode."""
-        return self.floquet_current_calculator.compute_floquet_current(
+        """Compute velocity from the selected exact Floquet mode."""
+        return self.floquet_velocity_calculator.compute_floquet_velocity(
             time,
             kx,
             ky,
@@ -146,7 +146,7 @@ class FloquetManager:
             include_charge=include_charge,
         )
 
-    def compute_perturbed_current(
+    def compute_perturbed_velocity(
         self,
         time,
         kx,
@@ -156,8 +156,8 @@ class FloquetManager:
         dk: float = 1e5,
         include_charge: bool = False,
     ):
-        """Compute current from the perturbative Floquet state."""
-        return self.floquet_current_calculator.compute_perturbed_current(
+        """Compute velocity from the perturbative Floquet state."""
+        return self.floquet_velocity_calculator.compute_perturbed_velocity(
             time,
             kx,
             ky,
@@ -167,7 +167,7 @@ class FloquetManager:
             include_charge=include_charge,
         )
 
-    def compute_static_current(
+    def compute_static_velocity(
         self,
         kx,
         ky,
@@ -175,8 +175,8 @@ class FloquetManager:
         dk: float = 1e5,
         include_charge: bool = False,
     ):
-        """Compute current from the static Hamiltonian eigenstate."""
-        return self.floquet_current_calculator.compute_static_current(
+        """Compute velocity from the static Hamiltonian eigenstate."""
+        return self.floquet_velocity_calculator.compute_static_velocity(
             kx,
             ky,
             band=band,
@@ -184,7 +184,7 @@ class FloquetManager:
             include_charge=include_charge,
         )
 
-    def compute_instantaneous_current(
+    def compute_adiabatic_velocity(
         self,
         time,
         kx,
@@ -193,8 +193,8 @@ class FloquetManager:
         dk: float = 1e5,
         include_charge: bool = False,
     ):
-        """Compute current from the instantaneous Hamiltonian eigenstate."""
-        return self.floquet_current_calculator.compute_instantaneous_current(
+        """Compute velocity from the adiabatic instantaneous-band eigenstate."""
+        return self.floquet_velocity_calculator.compute_adiabatic_velocity(
             time,
             kx,
             ky,
@@ -203,7 +203,7 @@ class FloquetManager:
             include_charge=include_charge,
         )
 
-    def compute_hfe_current(
+    def compute_hfe_velocity(
         self,
         kx,
         ky,
@@ -212,8 +212,8 @@ class FloquetManager:
         dk: float = 1e5,
         include_charge: bool = False,
     ):
-        """Compute current from the high-frequency effective Hamiltonian."""
-        return self.floquet_current_calculator.compute_hfe_current(
+        """Compute velocity from the high-frequency effective Hamiltonian."""
+        return self.floquet_velocity_calculator.compute_hfe_velocity(
             kx,
             ky,
             band=band,
@@ -221,6 +221,7 @@ class FloquetManager:
             dk=dk,
             include_charge=include_charge,
         )
+
 
     def compute_perturbed_state(
         self,

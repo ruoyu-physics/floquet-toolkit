@@ -161,12 +161,12 @@ class FloquetBerryPhaseCalculator:
 
         def floquet_bloch_state(kx, ky, band="conduction"):
             """Select and reconstruct the time-dependent Floquet state."""
-            _, _, f_state = self.state_provider.select_floquet_state(
+            idx, _, f_state = self.state_provider.select_floquet_state(
                 kx,
                 ky,
                 band=band,
             )
-
+            
             return self.state_provider.reconstruct_floquet_state(f_state, time=time)
 
         return self._compute_berry_phase_on_circle(

@@ -1,4 +1,4 @@
-"""Current-like expectation values for static and Floquet states."""
+"""Velocity-like expectation values for static and Floquet states."""
 
 from functools import partial
 
@@ -11,12 +11,12 @@ from .floquet_perturbation_calculator import FloquetPerturbationCalculator
 from .floquet_state_provider import FloquetStateProvider
 
 
-class FloquetCurrentCalculator:
-    """Compute velocity/current expectations from several state sources.
+class FloquetVelocityCalculator:
+    """Compute local velocity expectations from several state sources.
 
-    The returned values are single-particle velocity expectation values by default.
-    Set ``include_charge=True`` to multiply by ``-e`` and return charge-current
-    expectations instead.
+    The returned values are single-particle velocity expectation values by
+    default. Set ``include_charge=True`` to multiply by ``-e`` and return
+    charge-current expectations instead.
     """
 
     def __init__(
@@ -63,7 +63,7 @@ class FloquetCurrentCalculator:
             "evaluation"
         )
 
-    def _finalize_current(self, expectation, include_charge):
+    def _finalize_velocity(self, expectation, include_charge):
         """Convert a velocity expectation into a charge current if requested."""
         if include_charge:
             return -self.e_charge * expectation.real
@@ -113,18 +113,18 @@ class FloquetCurrentCalculator:
         dk,
         include_charge,
     ):
-        """Compute x and y current components from one state."""
+        """Compute x and y velocity components from one state."""
         velocity_x = self._velocity_operator(hamiltonian, time, kx, ky, "x", dk)
         velocity_y = self._velocity_operator(hamiltonian, time, kx, ky, "y", dk)
 
         current_x = self._expectation_value(state, velocity_x)
         current_y = self._expectation_value(state, velocity_y)
         return (
-            self._finalize_current(current_x, include_charge),
-            self._finalize_current(current_y, include_charge),
+            self._finalize_velocity(current_x, include_charge),
+            self._finalize_velocity(current_y, include_charge),
         )
 
-    def compute_floquet_current(
+    def compute_floquet_velocity(
         self,
         time,
         kx,
@@ -134,7 +134,7 @@ class FloquetCurrentCalculator:
         dk: float = 1e5,
         include_charge: bool = False,
     ):
-        """Compute current from the selected exact Floquet mode.
+        """Compute velocity from the selected exact Floquet mode.
 
         Args:
             time: Scalar time or 1D time grid for Floquet-state reconstruction.
@@ -166,7 +166,7 @@ class FloquetCurrentCalculator:
             include_charge,
         )
 
-    def compute_perturbed_current(
+    def compute_perturbed_velocity(
         self,
         time,
         kx,
@@ -176,7 +176,7 @@ class FloquetCurrentCalculator:
         dk: float = 1e5,
         include_charge: bool = False,
     ):
-        """Compute current from the perturbative Floquet state."""
+        """Compute velocity from the perturbative Floquet state."""
         _, perturbed_state = self.perturbation_calculator.compute_perturbed_state(
             kx,
             ky,
@@ -197,7 +197,7 @@ class FloquetCurrentCalculator:
             include_charge,
         )
 
-    def compute_static_current(
+    def compute_static_velocity(
         self,
         kx,
         ky,
@@ -205,7 +205,7 @@ class FloquetCurrentCalculator:
         dk: float = 1e5,
         include_charge: bool = False,
     ):
-        """Compute current from the static Hamiltonian eigenstate."""
+        """Compute velocity from the static Hamiltonian eigenstate."""
         eigvals, eigvecs = self.state_provider.diagonalize_static_hamiltonian(kx, ky)
         state = self._resolve_band_state(eigvals, eigvecs, band)
         return self._expectation_components(
@@ -218,7 +218,7 @@ class FloquetCurrentCalculator:
             include_charge,
         )
 
-    def compute_instantaneous_current(
+    def compute_adiabatic_velocity(
         self,
         time,
         kx,
@@ -227,7 +227,7 @@ class FloquetCurrentCalculator:
         dk: float = 1e5,
         include_charge: bool = False,
     ):
-        """Compute current from the instantaneous Hamiltonian H(t, k).
+        """Compute velocity from the adiabatic state of H(t, k).
 
         This is a useful adiabatic benchmark: diagonalize the Hamiltonian at a
         fixed time and take the expectation value of the corresponding
@@ -246,7 +246,7 @@ class FloquetCurrentCalculator:
             include_charge,
         )
 
-    def compute_hfe_current(
+    def compute_hfe_velocity(
         self,
         kx,
         ky,
@@ -255,7 +255,7 @@ class FloquetCurrentCalculator:
         dk: float = 1e5,
         include_charge: bool = False,
     ):
-        """Compute current from the high-frequency effective Hamiltonian."""
+        """Compute velocity from the high-frequency effective Hamiltonian."""
         floquet_builder = FloquetBuilder(
             partial(self.Ht, kx=kx, ky=ky),
             self.omega,
@@ -285,3 +285,33 @@ class FloquetCurrentCalculator:
             dk,
             include_charge,
         )
+
+    def compute_velocity_from_quasi_energy_spectrum(
+        self,
+        kx,
+        ky,
+        band="conduction",
+        dk: float = 1e5,
+        include_charge: bool = False,
+    ):
+        """Compute velocity from the quasi-energy spectrum slope."""
+        def quasi_energy_state(kx, ky, band="conduction"):
+            all_quasi_energies, all_floquet_states = self.state_provider.diagonalize_floquet_hamiltonian(kx, ky)
+            state_index = self.state_provider.resolve_band_index(all_quasi_energies, band)
+            return all_quasi_energies[state_index]
+        
+        energy1 = quasi_energy_state(kx - dk/2, ky, band=band)
+        energy2 = quasi_energy_state(kx, ky, band=band)
+        energy3 = quasi_energy_state(kx + dk/2, ky, band=band)
+        velocity_x = np.gradient([energy1, energy2, energy3], dk)/self.hbar
+
+        energy1 = quasi_energy_state(kx, ky - dk/2, band=band)
+        energy2 = quasi_energy_state(kx, ky, band=band)
+        energy3 = quasi_energy_state(kx, ky + dk/2, band=band)
+        velocity_y = np.gradient([energy1, energy2, energy3], dk)/self.hbar
+        if include_charge:
+            return -self.e_charge * velocity_x[1], -self.e_charge * velocity_y[1]
+        return velocity_x[1], velocity_y[1]
+
+
+        
