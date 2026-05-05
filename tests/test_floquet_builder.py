@@ -91,7 +91,9 @@ def test_selected_quasienergy_converges_with_resolution():
 
         assert medium_error < coarse_error
         assert refined_error < coarse_error
-        if medium_error > 0.0:
+        if coarse_error < 1.0e-30:
+            assert refined_error < 1.0e-30
+        elif medium_error > 0.0:
             assert refined_error <= 6.0 * medium_error
         else:
             assert refined_error < 1.0e-30
