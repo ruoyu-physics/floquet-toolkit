@@ -91,7 +91,10 @@ def test_selected_quasienergy_converges_with_resolution():
 
         assert medium_error < coarse_error
         assert refined_error < coarse_error
-        assert refined_error <= 6.0 * medium_error
+        if medium_error > 0.0:
+            assert refined_error <= 6.0 * medium_error
+        else:
+            assert refined_error < 1.0e-30
 
         for quasienergy, reconstructed_state in results[:-1]:
             assert min_time_overlap(ref_state, reconstructed_state) > 1.0 - 5.0e-9
