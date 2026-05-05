@@ -6,7 +6,7 @@ import numpy as np
 from floquet_toolkit import (
     DiracModel,
     DiracParameters,
-    FloquetManager,
+    FloquetLocalManager,
     GrapheneModel,
     GrapheneParameters,
     UnitConvention,
@@ -52,7 +52,7 @@ def plot_spectrum(
     title: str = "Floquet quasienergy spectrum",
 ):
     """Plot a Floquet quasienergy spectrum over a rectangular momentum grid."""
-    manager = FloquetManager(model, floquet_params)
+    manager = FloquetLocalManager(model, floquet_params)
 
     kx_values = np.linspace(*kx_range, num=num_kx)
     ky_values = np.linspace(*ky_range, num=num_ky)

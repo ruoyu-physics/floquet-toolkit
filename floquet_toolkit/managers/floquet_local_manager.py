@@ -1,32 +1,28 @@
-"""High-level user-facing interface for common Floquet workflows."""
+"""Manager for local Floquet observables and state-resolved quantities."""
 
 from functools import partial
 import numpy as np
-from .core.driven_bloch_hamiltonian import DrivenBlochHamiltonian
-from .calculators import (
-    FloquetVelocityCalculator,
+
+from ..builders import FloquetBuilder
+from ..calculators import (
     FloquetCurvatureCalculator,
     FloquetPerturbationCalculator,
     FloquetSpectrumCalculator,
+    FloquetStateProvider,
+    FloquetVelocityCalculator,
 )
-from .calculators import FloquetStateProvider, FloquetBerryPhaseCalculator
-from .config import FloquetParameters
-from .builders import FloquetBuilder
+from ..config import FloquetParameters
+from ..core.driven_bloch_hamiltonian import DrivenBlochHamiltonian
 
 
-class FloquetManager:
-    """Thin facade over calculators used by scripts and notebooks.
-
-    The manager keeps the public API compact while detailed construction, state
-    selection, and observable logic live in specialized classes.
-    """
+class FloquetLocalManager:
+    """Facade for local-in-k Floquet states, spectra, curvature, and velocity."""
 
     def __init__(
         self,
         driven_hamiltonian: DrivenBlochHamiltonian,
         floquet_params: FloquetParameters,
     ):
-        """Create calculators for one driven Hamiltonian and Floquet setup."""
         self.driven_hamiltonian = driven_hamiltonian
         self.floquet_params = floquet_params
         self.hbar = driven_hamiltonian.units.hbar
@@ -48,10 +44,6 @@ class FloquetManager:
             floquet_params,
         )
         self.state_provider = FloquetStateProvider(driven_hamiltonian, floquet_params)
-        self.berry_phase_calculator = FloquetBerryPhaseCalculator(
-            driven_hamiltonian,
-            floquet_params,
-        )
 
     def diagonalize_floquet_hamiltonian(self, kx, ky):
         """Return exact truncated Floquet eigenvalues and eigenvectors."""
@@ -66,12 +58,7 @@ class FloquetManager:
         return quasi_energy, floquet_states
 
     def select_floquet_state(self, kx, ky, band: str = "conduction", mode: str = "overlap"):
-        """Return the selected Floquet eigenstate at one momentum.
-
-        Returns:
-            Tuple ``(state_index, static_state, floquet_state)`` from the state
-            provider's overlap- or quasienergy-based selection rule.
-        """
+        """Return the selected Floquet eigenstate at one momentum."""
         return self.state_provider.select_floquet_state(kx, ky, band=band, mode=mode)
 
     def compute_static_berry_curvature(
@@ -82,7 +69,6 @@ class FloquetManager:
         dk: float = 1e5,
         method: str = "auto",
     ):
-        """Compute Berry curvature from the static Hamiltonian."""
         return self.floquet_curvature_calculator.compute_static_berry_curvature(
             kx,
             ky,
@@ -99,7 +85,6 @@ class FloquetManager:
         band="conduction",
         dk: float = 1e5,
     ):
-        """Compute time-resolved Berry curvature from exact Floquet states."""
         return self.floquet_curvature_calculator.compute_instantaneous_berry_curvature(
             time,
             kx,
@@ -116,7 +101,6 @@ class FloquetManager:
         dk: float = 1e5,
         order: int = 2,
     ):
-        """Compute Berry curvature from the high-frequency effective Hamiltonian."""
         return self.floquet_curvature_calculator.compute_hfe_berry_curvature(
             kx,
             ky,
@@ -135,7 +119,6 @@ class FloquetManager:
         dk: float = 1e5,
         include_charge: bool = False,
     ):
-        """Compute velocity from the selected exact Floquet mode."""
         return self.floquet_velocity_calculator.compute_floquet_velocity(
             time,
             kx,
@@ -156,7 +139,6 @@ class FloquetManager:
         dk: float = 1e5,
         include_charge: bool = False,
     ):
-        """Compute velocity from the perturbative Floquet state."""
         return self.floquet_velocity_calculator.compute_perturbed_velocity(
             time,
             kx,
@@ -175,7 +157,6 @@ class FloquetManager:
         dk: float = 1e5,
         include_charge: bool = False,
     ):
-        """Compute velocity from the static Hamiltonian eigenstate."""
         return self.floquet_velocity_calculator.compute_static_velocity(
             kx,
             ky,
@@ -193,7 +174,6 @@ class FloquetManager:
         dk: float = 1e5,
         include_charge: bool = False,
     ):
-        """Compute velocity from the adiabatic instantaneous-band eigenstate."""
         return self.floquet_velocity_calculator.compute_adiabatic_velocity(
             time,
             kx,
@@ -212,7 +192,6 @@ class FloquetManager:
         dk: float = 1e5,
         include_charge: bool = False,
     ):
-        """Compute velocity from the high-frequency effective Hamiltonian."""
         return self.floquet_velocity_calculator.compute_hfe_velocity(
             kx,
             ky,
@@ -222,7 +201,6 @@ class FloquetManager:
             include_charge=include_charge,
         )
 
-
     def compute_perturbed_state(
         self,
         kx: float,
@@ -231,12 +209,7 @@ class FloquetManager:
         band="conduction",
         order: int = 2,
     ):
-        """Compute a first-order corrected Floquet state at one momentum."""
-        perturbation_calculator = FloquetPerturbationCalculator(
-            self.floquet_curvature_calculator.driven_hamiltonian,
-            self.floquet_params,
-        )
-        _, perturbed_state = perturbation_calculator.compute_perturbed_state(
+        _, perturbed_state = self.floquet_perturbation_calculator.compute_perturbed_state(
             kx,
             ky,
             band=band,
@@ -252,7 +225,6 @@ class FloquetManager:
         band="conduction",
         dk=1e5,
     ):
-        """Compute Berry curvature from the first-order corrected Floquet state."""
         return self.floquet_curvature_calculator.compute_perturbed_state_berry_curvature(
             time,
             kx,
@@ -262,7 +234,6 @@ class FloquetManager:
         )
 
     def compute_quasi_energies(self, kx, ky, band="conduction", fold_to_zone: bool = True):
-        """Return quasienergies, central-block weights, and band overlaps."""
         return self.floquet_spectrum_calculator.compute_quasi_energies(
             kx,
             ky,
@@ -277,44 +248,9 @@ class FloquetManager:
         band="conduction",
         fold_to_zone: bool = False,
     ):
-        """Return quasienergy spectra, central-block weights, and band overlaps."""
         return self.floquet_spectrum_calculator.compute_floquet_spectrum(
             kx_values,
             ky_values,
             band=band,
             fold_to_zone=fold_to_zone,
-        )
-
-    def compute_floquet_berry_phase(
-        self,
-        time,
-        k_radius,
-        k_center=(0, 0),
-        n_points=100,
-        band="conduction",
-    ):
-        """Compute the Floquet-mode Berry phase on a circular momentum-space loop."""
-        return self.berry_phase_calculator.compute_floquet_berry_phase(
-            time,
-            k_radius,
-            k_center,
-            n_points,
-            band=band,
-        )
-
-    def integrate_berry_curvature_on_grid(
-        self,
-        time,
-        k_radius,
-        k_center=(0, 0),
-        n_points=51,
-        band="conduction",
-    ):
-        """Integrate instantaneous Floquet Berry curvature over a circular region."""
-        return self.berry_phase_calculator.integrate_curvature_over_kgrid(
-            time,
-            k_radius,
-            k_center,
-            n_points,
-            band,
         )

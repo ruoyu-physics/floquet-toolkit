@@ -3,7 +3,7 @@ import numpy as np
 from floquet_toolkit import (
     DiracModel,
     DiracParameters,
-    FloquetManager,
+    FloquetLocalManager,
     GrapheneModel,
     GrapheneParameters,
     RotatingFrameDiracModel,
@@ -34,7 +34,7 @@ def test_builtin_model_classes_convert_to_driven_hamiltonians():
 
 def test_floquet_manager_diagonalize_floquet_hamiltonian_returns_square_eigensystem():
     model = DiracModel(DIRAC_PARAMS, DRIVE_PARAMS).to_driven_hamiltonian()
-    manager = FloquetManager(model, FLOQUET_PARAMS)
+    manager = FloquetLocalManager(model, FLOQUET_PARAMS)
 
     quasi_energy, floquet_states = manager.diagonalize_floquet_hamiltonian(0.0, 0.0)
 

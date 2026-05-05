@@ -3,7 +3,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from floquet_toolkit import DiracModel, DiracParameters, FloquetManager, UnitConvention
+from floquet_toolkit import DiracModel, DiracParameters, FloquetLocalManager, UnitConvention
 from floquet_toolkit.config import (
     DriveParameters,
     FloquetParameters,
@@ -42,7 +42,7 @@ def compute_time_averaged_curvature_vs_drive_amplitude(
             DEFAULT_DIRAC_PARAMS,
             drive_params,
         ).to_driven_hamiltonian()
-        manager = FloquetManager(model, DEFAULT_FLOQUET_PARAMS)
+        manager = FloquetLocalManager(model, DEFAULT_FLOQUET_PARAMS)
         time_grid = np.linspace(0.0, drive_params.period, DEFAULT_FLOQUET_PARAMS.n_time, endpoint=False)
 
         floquet_curvature = manager.compute_instantaneous_berry_curvature(

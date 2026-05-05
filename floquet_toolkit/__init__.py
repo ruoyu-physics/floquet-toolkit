@@ -1,6 +1,6 @@
 """Public API for the Floquet toolkit package."""
 
-from .floquet_manager import FloquetManager
+from .managers import FloquetLocalManager, FloquetManager, FloquetTransportManager
 from .builtin_models import (
     DiracModel,
     DiracParameters,
@@ -14,7 +14,9 @@ from .builtin_models import (
 from .config import DriveParameters, FloquetParameters, UnitConvention
 
 __all__ = [
+    "FloquetLocalManager",
     "FloquetManager",
+    "FloquetTransportManager",
     "DiracModel",
     "DiracParameters",
     "GrapheneModel",

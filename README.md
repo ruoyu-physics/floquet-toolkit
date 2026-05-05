@@ -24,7 +24,7 @@ floquet-toolkit/
     calculators/
     core/
     config.py
-    floquet_manager.py
+    managers/
   tests/
   examples/
   pyproject.toml
@@ -58,9 +58,13 @@ Dependency groups:
 
 ## Main Components
 
-### `FloquetManager`
+### `FloquetLocalManager` and `FloquetTransportManager`
 
-`FloquetManager` is the main user-facing entry point. It combines the lower-level builders and calculators into a single interface for common Floquet workflows.
+`FloquetLocalManager` handles local-in-momentum observables such as spectra,
+Floquet states, Berry curvature, and velocities. `FloquetTransportManager`
+collects loop/integrated transport-style observables such as Berry phases.
+`FloquetManager` remains available as a lightweight compatibility wrapper that
+exposes `.local` and `.transport`.
 
 Useful methods are grouped roughly as follows:
 
@@ -134,7 +138,7 @@ The current tests cover:
 ```python
 import numpy as np
 
-from floquet_toolkit import DiracModel, FloquetManager, UnitConvention
+from floquet_toolkit import DiracModel, FloquetLocalManager, UnitConvention
 from floquet_toolkit.builtin_models import DiracParameters
 from floquet_toolkit.config import (
     DriveParameters,
@@ -163,7 +167,7 @@ floquet_params = FloquetParameters(
 )
 
 model = DiracModel(dirac_params, drive_params).to_driven_hamiltonian()
-manager = FloquetManager(model, floquet_params)
+manager = FloquetLocalManager(model, floquet_params)
 
 time = np.linspace(0.0, drive_params.period, floquet_params.n_time, endpoint=False)
 curvature = manager.compute_instantaneous_berry_curvature(

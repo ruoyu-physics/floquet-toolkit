@@ -1,6 +1,6 @@
 import numpy as np
 
-from floquet_toolkit import FloquetManager
+from floquet_toolkit import FloquetLocalManager
 from floquet_toolkit.builtin_models import DiracParameters, driven_dirac_model
 from floquet_toolkit.config import DriveParameters, FloquetParameters, MEV_TO_J
 
@@ -10,9 +10,9 @@ FLOQUET_PARAMS = FloquetParameters(n_trunc=5, n_harmonics=2, n_time=61)
 DK_VALUES = [4.0e5, 2.0e5, 1.0e5, 5.0e4]
 
 
-def build_manager() -> FloquetManager:
+def build_manager() -> FloquetLocalManager:
     model = driven_dirac_model(DIRAC_PARAMS, DRIVE_PARAMS)
-    return FloquetManager(model, FLOQUET_PARAMS)
+    return FloquetLocalManager(model, FLOQUET_PARAMS)
 
 
 def test_instantaneous_berry_curvature_converges_with_dk():
