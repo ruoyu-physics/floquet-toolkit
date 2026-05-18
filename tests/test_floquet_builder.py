@@ -37,7 +37,7 @@ def selected_state_and_quasienergy(kx: float, ky: float, floquet_params: Floquet
         kx,
         ky,
         band="conduction",
-        mode="overlap",
+        band_selection_mode="overlap",
     )
     time_grid = np.linspace(0.0, DRIVE_PARAMS.period, 11, endpoint=False)
     reconstructed = provider.reconstruct_floquet_state(floquet_state, time=time_grid)

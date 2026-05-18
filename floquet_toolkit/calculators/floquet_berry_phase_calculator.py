@@ -1,5 +1,12 @@
 import numpy as np
 
+from ..utils.kspace import (
+    create_cartesian_k_grid,
+    create_circular_mask,
+    create_polar_k_grid,
+    integrate_cartesian_grid,
+    integrate_polar_grid,
+)
 from .floquet_curvature_calculator import FloquetCurvatureCalculator
 from .floquet_state_provider import FloquetStateProvider
 
@@ -16,27 +23,6 @@ class FloquetBerryPhaseCalculator:
         self.driven_hamiltonian = driven_hamiltonian
         self.state_provider = FloquetStateProvider(driven_hamiltonian, floquet_params)
 
-    def _create_k_grid_for_circular_zone(self, k_radius, k_center=(0, 0), n_points=51):
-        """Create a masked Cartesian grid inside a circular region."""
-        kx_values = np.linspace(
-            k_center[0] - k_radius,
-            k_center[0] + k_radius,
-            n_points,
-        )
-        ky_values = np.linspace(
-            k_center[1] - k_radius,
-            k_center[1] + k_radius,
-            n_points,
-        )
-
-        kx_grid, ky_grid = np.meshgrid(kx_values, ky_values, indexing="xy")
-        mask = (
-            (kx_grid - k_center[0]) ** 2 + (ky_grid - k_center[1]) ** 2
-            <= k_radius**2
-        )
-
-        return kx_grid, ky_grid, mask
-
     def integrate_curvature_over_kgrid(
         self,
         time,
@@ -44,6 +30,7 @@ class FloquetBerryPhaseCalculator:
         k_center=(0, 0),
         n_points=51,
         band="conduction",
+        integration_mode: str = "polar",
     ):
         """Integrate instantaneous Berry curvature over a circular zone.
 
@@ -53,27 +40,99 @@ class FloquetBerryPhaseCalculator:
             k_radius: Radius of the circular integration region.
             k_center: Center of the circular integration region in momentum
                 space.
-            n_points: Number of Cartesian samples along each axis before masking.
+            n_points: Number of samples per coordinate axis. For
+                ``integration_mode="cartesian"``, this is the number of grid
+                points along each Cartesian axis before masking to the disk.
+                For ``integration_mode="polar"``, it is used for both the
+                radial and angular sample counts.
             band: Target band label or integer index.
+            integration_mode: Sampling/integration rule. ``"cartesian"`` uses
+                a masked Cartesian grid over the enclosing square, while
+                ``"polar"`` uses a polar grid with the appropriate Jacobian.
         """
-        kx_grid, ky_grid, mask = self._create_k_grid_for_circular_zone(
-            k_radius=k_radius,
-            k_center=k_center,
-            n_points=n_points,
-        )
+        if integration_mode == "cartesian":
+            kx_values, ky_values, kx_grid, ky_grid = create_cartesian_k_grid(
+                kx_range=(k_center[0] - k_radius, k_center[0] + k_radius),
+                ky_range=(k_center[1] - k_radius, k_center[1] + k_radius),
+                num_kx=n_points,
+                num_ky=n_points,
+            )
+            mask = create_circular_mask(
+                kx_grid,
+                ky_grid,
+                k_radius=k_radius,
+                k_center=k_center,
+            )
+            curvature_values = None
 
-        dk = 2.0 * k_radius / (n_points - 1)
-        total_curvature = 0.0
+            for i in range(n_points):
+                for j in range(n_points):
+                    if not mask[i, j]:
+                        continue
+                    local_curvature = np.asarray(
+                        self.curvature_calculator.compute_instantaneous_berry_curvature(
+                            time,
+                            kx_grid[i, j],
+                            ky_grid[i, j],
+                            band=band,
+                        )
+                    )
+                    if curvature_values is None:
+                        curvature_values = np.zeros(
+                            local_curvature.shape + (n_points, n_points),
+                            dtype=local_curvature.dtype,
+                        )
+                    curvature_values[..., i, j] = local_curvature
 
-        for kx, ky in zip(kx_grid[mask], ky_grid[mask]):
-            total_curvature += self.curvature_calculator.compute_instantaneous_berry_curvature(
-                time,
-                kx,
-                ky,
-                band=band,
+            if curvature_values is None:
+                curvature_values = np.zeros((n_points, n_points), dtype=float)
+
+            return integrate_cartesian_grid(
+                curvature_values,
+                kx_values,
+                ky_values,
+                mask=mask,
             )
 
-        return total_curvature * dk * dk
+        if integration_mode == "polar":
+            r_values, theta_values, _, _, kx_grid, ky_grid = create_polar_k_grid(
+                r_range=(0.0, k_radius),
+                theta_range=(0.0, 2.0 * np.pi),
+                num_r=n_points,
+                num_theta=n_points,
+                k_center=k_center,
+            )
+            curvature_values = None
+
+            for i in range(n_points):
+                for j in range(n_points):
+                    local_curvature = np.asarray(
+                        self.curvature_calculator.compute_instantaneous_berry_curvature(
+                            time,
+                            kx_grid[i, j],
+                            ky_grid[i, j],
+                            band=band,
+                        )
+                    )
+                    if curvature_values is None:
+                        curvature_values = np.zeros(
+                            local_curvature.shape + (n_points, n_points),
+                            dtype=local_curvature.dtype,
+                        )
+                    curvature_values[..., i, j] = local_curvature
+
+            if curvature_values is None:
+                curvature_values = np.zeros((n_points, n_points), dtype=float)
+
+            return integrate_polar_grid(
+                curvature_values,
+                r_values,
+                theta_values,
+            )
+
+        raise ValueError(
+            "integration_mode must be either 'polar' or 'cartesian'."
+        )
 
     def _compute_berry_phase_on_circle(
         self,

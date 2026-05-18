@@ -12,7 +12,7 @@ It currently provides tools to:
 
 ## Design Goal
 
-The package is designed to avoid rewriting model-specific or observable-specific code for each new study. New driven two-band systems can be introduced through the `DrivenBlochHamiltonian` abstraction, while new observables can be built on top of the existing Floquet builders and calculator infrastructure. In practice, this means users can reuse the same numerical machinery across different models and extend the toolkit with new calculators instead of rewiring the full codebase.
+The package is designed to avoid rewriting model-specific or observable-specific code for each new study. New driven two-band systems can be introduced through the `DrivenBlochHamiltonian` abstraction, while new observables can be built on top of the existing builder and calculator classes. In practice, this means users can reuse the same numerical machinery across different models and extend the toolkit with new calculators instead of rewiring the full codebase.
 
 ## Project Layout
 

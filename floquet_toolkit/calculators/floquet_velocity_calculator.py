@@ -15,7 +15,8 @@ class FloquetVelocityCalculator:
     """Compute local velocity expectations from several state sources.
 
     The returned values are single-particle velocity expectation values by
-    default. Set ``include_charge=True`` to multiply by ``-e`` and return
+    default. Set ``include_charge=True`` to multiply by the configured charge
+    ``q`` and return
     charge-current expectations instead.
     """
 
@@ -66,7 +67,7 @@ class FloquetVelocityCalculator:
     def _finalize_velocity(self, expectation, include_charge):
         """Convert a velocity expectation into a charge current if requested."""
         if include_charge:
-            return -self.e_charge * expectation.real
+            return self.e_charge * expectation.real
         return expectation.real
 
     def _velocity_operator(
@@ -130,9 +131,9 @@ class FloquetVelocityCalculator:
         kx,
         ky,
         band="conduction",
-        mode: str = "overlap",
         dk: float = 1e5,
         include_charge: bool = False,
+        band_selection_mode: str = "overlap",
     ):
         """Compute velocity from the selected exact Floquet mode.
 
@@ -141,17 +142,42 @@ class FloquetVelocityCalculator:
             kx: Momentum along x.
             ky: Momentum along y.
             band: Target band label or integer index.
-            mode: State-selection rule passed to ``FloquetStateProvider``.
             dk: Momentum increment used for the velocity-operator derivative.
             include_charge: If ``True``, multiply the velocity expectation by
-                ``-e`` to return a charge current.
+                the configured charge ``q`` to return a charge current.
+            band_selection_mode: State-selection rule passed to
+                ``FloquetStateProvider``.
         """
         _, _, floquet_state = self.state_provider.select_floquet_state(
             kx,
             ky,
             band=band,
-            mode=mode,
+            band_selection_mode=band_selection_mode,
         )
+        reconstructed_state = self.state_provider.reconstruct_floquet_state(
+            floquet_state,
+            time=time,
+        )
+        return self._expectation_components(
+            reconstructed_state,
+            self.Ht,
+            time,
+            kx,
+            ky,
+            dk,
+            include_charge,
+        )
+
+    def compute_floquet_velocity_from_state(
+        self,
+        time,
+        kx,
+        ky,
+        floquet_state,
+        dk: float = 1e5,
+        include_charge: bool = False,
+    ):
+        """Compute velocity from a supplied Floquet eigenstate."""
         reconstructed_state = self.state_provider.reconstruct_floquet_state(
             floquet_state,
             time=time,
@@ -310,7 +336,7 @@ class FloquetVelocityCalculator:
         energy3 = quasi_energy_state(kx, ky + dk/2, band=band)
         velocity_y = np.gradient([energy1, energy2, energy3], dk)/self.hbar
         if include_charge:
-            return -self.e_charge * velocity_x[1], -self.e_charge * velocity_y[1]
+            return self.e_charge * velocity_x[1], self.e_charge * velocity_y[1]
         return velocity_x[1], velocity_y[1]
 
 

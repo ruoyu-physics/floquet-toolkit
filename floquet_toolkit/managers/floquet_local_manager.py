@@ -57,9 +57,20 @@ class FloquetLocalManager:
         quasi_energy, floquet_states = np.linalg.eigh(floquet_hamiltonian)
         return quasi_energy, floquet_states
 
-    def select_floquet_state(self, kx, ky, band: str = "conduction", mode: str = "overlap"):
+    def select_floquet_state(
+        self,
+        kx,
+        ky,
+        band: str = "conduction",
+        band_selection_mode: str = "overlap",
+    ):
         """Return the selected Floquet eigenstate at one momentum."""
-        return self.state_provider.select_floquet_state(kx, ky, band=band, mode=mode)
+        return self.state_provider.select_floquet_state(
+            kx,
+            ky,
+            band=band,
+            band_selection_mode=band_selection_mode,
+        )
 
     def compute_static_berry_curvature(
         self,
@@ -115,18 +126,18 @@ class FloquetLocalManager:
         kx,
         ky,
         band="conduction",
-        mode: str = "overlap",
         dk: float = 1e5,
         include_charge: bool = False,
+        band_selection_mode: str = "overlap",
     ):
         return self.floquet_velocity_calculator.compute_floquet_velocity(
             time,
             kx,
             ky,
             band=band,
-            mode=mode,
             dk=dk,
             include_charge=include_charge,
+            band_selection_mode=band_selection_mode,
         )
 
     def compute_perturbed_velocity(

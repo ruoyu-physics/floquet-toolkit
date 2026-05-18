@@ -114,7 +114,7 @@ class FloquetPerturbationCalculator:
             ky,
             H0=H0,
             band=band,
-            mode="overlap",
+            band_selection_mode="overlap",
         )
         unperturbed_state = floquet_state
         perturbed_state = unperturbed_state.copy()
