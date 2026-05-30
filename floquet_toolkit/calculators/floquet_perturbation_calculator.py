@@ -3,7 +3,7 @@
 from functools import partial
 import numpy as np
 from ..builders import FloquetBuilder
-from .floquet_state_provider import FloquetStateProvider
+from .states import FloquetStateProvider
 
 
 class FloquetPerturbationCalculator:

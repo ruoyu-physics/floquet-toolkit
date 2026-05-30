@@ -1,14 +1,18 @@
 import numpy as np
+import pytest
 
 from floquet_toolkit import (
     DiracModel,
     DiracParameters,
     FloquetLocalManager,
+    FloquetTransportManager,
     GrapheneModel,
     GrapheneParameters,
     RotatingFrameDiracModel,
 )
+from floquet_toolkit.calculators import FloquetCurrentCalculator, FloquetStateCache
 from floquet_toolkit.config import DriveParameters, FloquetParameters
+from floquet_toolkit.utils.kspace import create_polar_k_grid, integrate_polar_grid
 
 
 DIRAC_PARAMS = DiracParameters()
@@ -46,3 +50,68 @@ def test_floquet_manager_diagonalize_floquet_hamiltonian_returns_square_eigensys
         np.eye(expected_dimension),
         atol=1e-12,
     )
+
+
+def test_transport_manager_cache_preserves_floquet_current_values():
+    model = DiracModel(DIRAC_PARAMS, DRIVE_PARAMS).to_driven_hamiltonian()
+    transport_manager = FloquetTransportManager(model, FLOQUET_PARAMS)
+    uncached_calculator = FloquetCurrentCalculator(model, FLOQUET_PARAMS)
+
+    assert isinstance(transport_manager.cache, FloquetStateCache)
+
+    cached_time, cached_jx, cached_jy = (
+        transport_manager.integrate_floquet_current_on_fermi_disk(
+            k_radius=1.0e6,
+            n_k_points=5,
+            include_charge=True,
+            state_selection_algorithm="tracked",
+            band_selection_mode="overlap",
+            grid_type="cartesian",
+        )
+    )
+    uncached_time, uncached_jx, uncached_jy = (
+        uncached_calculator.integrate_floquet_current_on_fermi_disk(
+            k_radius=1.0e6,
+            n_k_points=5,
+            include_charge=True,
+            state_selection_algorithm="tracked",
+            band_selection_mode="overlap",
+            grid_type="cartesian",
+        )
+    )
+
+    assert np.allclose(cached_time, uncached_time)
+    assert np.allclose(cached_jx, uncached_jx)
+    assert np.allclose(cached_jy, uncached_jy)
+
+
+def test_local_manager_rejects_removed_quasi_energy_selection_mode():
+    model = DiracModel(DIRAC_PARAMS, DRIVE_PARAMS).to_driven_hamiltonian()
+    manager = FloquetLocalManager(model, FLOQUET_PARAMS)
+
+    with pytest.raises(ValueError, match="band_selection_mode must be 'overlap'"):
+        manager.select_floquet_state(
+            0.0,
+            0.0,
+            band="conduction",
+            band_selection_mode="quasi_energy",
+        )
+
+
+def test_integrate_polar_grid_matches_disk_area_for_constant_integrand():
+    radius = 2.5
+    exact_area = np.pi * radius**2
+
+    for n_points in (11, 21, 51):
+        r_values, theta_values, r_grid, _, _, _ = create_polar_k_grid(
+            r_range=(0.0, radius),
+            theta_range=(0.0, 2.0 * np.pi),
+            num_r=n_points,
+            num_theta=n_points,
+        )
+        numerical_area = integrate_polar_grid(
+            np.ones_like(r_grid),
+            r_values,
+            theta_values,
+        )
+        assert np.isclose(numerical_area, exact_area, rtol=1.0e-12, atol=1.0e-12)

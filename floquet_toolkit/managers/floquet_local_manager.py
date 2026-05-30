@@ -9,6 +9,7 @@ from ..calculators import (
     FloquetPerturbationCalculator,
     FloquetSpectrumCalculator,
     FloquetStateProvider,
+    FloquetStateTracker,
     FloquetVelocityCalculator,
 )
 from ..config import FloquetParameters
@@ -44,6 +45,7 @@ class FloquetLocalManager:
             floquet_params,
         )
         self.state_provider = FloquetStateProvider(driven_hamiltonian, floquet_params)
+        self.state_tracker = FloquetStateTracker(self.state_provider)
 
     def diagonalize_floquet_hamiltonian(self, kx, ky):
         """Return exact truncated Floquet eigenvalues and eigenvectors."""

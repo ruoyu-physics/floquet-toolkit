@@ -1,6 +1,10 @@
 """Manager for Floquet transport-style and integrated observables."""
 
-from ..calculators import FloquetBerryPhaseCalculator, FloquetCurrentCalculator
+from ..calculators import (
+    FloquetBerryPhaseCalculator,
+    FloquetCurrentCalculator,
+    FloquetStateCache,
+)
 from ..config import FloquetParameters
 from ..core.driven_bloch_hamiltonian import DrivenBlochHamiltonian
 
@@ -12,16 +16,20 @@ class FloquetTransportManager:
         self,
         driven_hamiltonian: DrivenBlochHamiltonian,
         floquet_params: FloquetParameters,
+        cache: FloquetStateCache | None = None,
     ):
         self.driven_hamiltonian = driven_hamiltonian
         self.floquet_params = floquet_params
+        self.cache = cache if cache is not None else FloquetStateCache()
         self.berry_phase_calculator = FloquetBerryPhaseCalculator(
             driven_hamiltonian,
             floquet_params,
+            cache=self.cache,
         )
         self.current_calculator = FloquetCurrentCalculator(
             driven_hamiltonian,
             floquet_params,
+            cache=self.cache,
         )
 
     def compute_floquet_berry_phase(
@@ -47,7 +55,11 @@ class FloquetTransportManager:
         k_center=(0, 0),
         n_points=51,
         band="conduction",
-        integration_mode: str = "polar",
+        grid_type: str = "cartesian",
+        dk: float | None = None,
+        integration_method: str = "shared_corner",
+        curvature_type: str = "floquet",
+        order: int = 2,
     ):
         return self.berry_phase_calculator.integrate_curvature_over_kgrid(
             time,
@@ -55,7 +67,11 @@ class FloquetTransportManager:
             k_center,
             n_points,
             band,
-            integration_mode=integration_mode,
+            grid_type=grid_type,
+            dk=dk,
+            integration_method=integration_method,
+            curvature_type=curvature_type,
+            order=order,
         )
 
     def integrate_floquet_current_on_fermi_disk(
@@ -67,7 +83,9 @@ class FloquetTransportManager:
         include_charge=False,
         state_selection_algorithm: str = "tracked",
         band_selection_mode: str = "overlap",
-        integration_mode: str = "polar",
+        grid_type: str = "polar",
+        adaptive_tol: float | None = None,
+        adaptive_max_depth: int | None = None,
     ):
         """Integrate the exact Floquet current over a circular momentum region."""
         return self.current_calculator.integrate_floquet_current_on_fermi_disk(
@@ -78,7 +96,9 @@ class FloquetTransportManager:
             include_charge=include_charge,
             state_selection_algorithm=state_selection_algorithm,
             band_selection_mode=band_selection_mode,
-            integration_mode=integration_mode,
+            grid_type=grid_type,
+            adaptive_tol=adaptive_tol,
+            adaptive_max_depth=adaptive_max_depth,
         )
 
     def integrate_adiabatic_current_on_fermi_disk(
@@ -88,7 +108,9 @@ class FloquetTransportManager:
         n_k_points=21,
         band="conduction",
         include_charge=False,
-        integration_mode: str = "polar",
+        grid_type: str = "polar",
+        adaptive_tol: float | None = None,
+        adaptive_max_depth: int | None = None,
     ):
         """Integrate the adiabatic current over a circular momentum region."""
         return self.current_calculator.integrate_adiabatic_current_on_fermi_disk(
@@ -97,5 +119,7 @@ class FloquetTransportManager:
             n_k_points=n_k_points,
             band=band,
             include_charge=include_charge,
-            integration_mode=integration_mode,
+            grid_type=grid_type,
+            adaptive_tol=adaptive_tol,
+            adaptive_max_depth=adaptive_max_depth,
         )

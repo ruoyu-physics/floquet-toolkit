@@ -1,7 +1,7 @@
 """Quasienergy and spectral-weight calculations for Floquet spectra."""
 
 import numpy as np
-from .floquet_state_provider import FloquetStateProvider
+from .states import FloquetStateProvider
 from ..config import FloquetParameters
 from ..core.driven_bloch_hamiltonian import DrivenBlochHamiltonian
 

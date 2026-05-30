@@ -5,7 +5,7 @@ from ..config import FloquetParameters
 from ..core.driven_bloch_hamiltonian import DrivenBlochHamiltonian
 from ..builders import FloquetBuilder
 from ..builders import HFEBuilder
-from .floquet_state_provider import FloquetStateProvider
+from .states import FloquetStateCache, FloquetStateProvider, FloquetStateTracker
 from functools import partial
 from typing import Callable
 from .floquet_perturbation_calculator import FloquetPerturbationCalculator
@@ -22,6 +22,7 @@ class FloquetCurvatureCalculator:
         self,
         driven_hamiltonian: DrivenBlochHamiltonian,
         floquet_params: FloquetParameters,
+        cache: FloquetStateCache | None = None,
     ):
         """Initialize the calculator with a driven model and numerical parameters."""
         self.driven_hamiltonian = driven_hamiltonian
@@ -29,7 +30,12 @@ class FloquetCurvatureCalculator:
             driven_hamiltonian,
             floquet_params,
         )
-        self.state_provider = FloquetStateProvider(driven_hamiltonian, floquet_params)
+        self.state_provider = FloquetStateProvider(
+            driven_hamiltonian,
+            floquet_params,
+            cache=cache,
+        )
+        self.state_tracker = FloquetStateTracker(self.state_provider)
 
         self.Ht = driven_hamiltonian.Ht
         self.omega = driven_hamiltonian.omega
@@ -103,13 +109,39 @@ class FloquetCurvatureCalculator:
             band: Target band label or integer index.
             dk: Half-width of the Fukui plaquette for numerical evaluation.
         """
+        kx_grid = np.array(
+            [
+                [kx - dk / 2, kx - dk / 2],
+                [kx + dk / 2, kx + dk / 2],
+            ],
+            dtype=float,
+        )
+        ky_grid = np.array(
+            [
+                [ky - dk / 2, ky + dk / 2],
+                [ky - dk / 2, ky + dk / 2],
+            ],
+            dtype=float,
+        )
+        tracked = self.state_tracker.track_floquet_states_on_grid(
+            kx_grid,
+            ky_grid,
+            band=band,
+        )
+        tracked_states = tracked["floquet_states"]
 
-        def floquet_state(kx, ky, band="conduction"):
-            """Select and reconstruct the time-dependent Floquet state."""
-            _, __, f_state = self.state_provider.select_floquet_state(kx, ky, band=band)
-            return self.state_provider.reconstruct_floquet_state(f_state, time=time)
+        v1 = self.state_provider.reconstruct_floquet_state(tracked_states[0, 0, :], time=time)
+        v2 = self.state_provider.reconstruct_floquet_state(tracked_states[1, 0, :], time=time)
+        v3 = self.state_provider.reconstruct_floquet_state(tracked_states[0, 1, :], time=time)
+        v4 = self.state_provider.reconstruct_floquet_state(tracked_states[1, 1, :], time=time)
 
-        return self._compute_berry_curvature(floquet_state, kx, ky, dk=dk, band=band)
+        Ux = self._compute_link_variable(v1, v2)
+        Uy_dkx = self._compute_link_variable(v2, v4)
+        Ux_dky = self._compute_link_variable(v3, v4)
+        Uy = self._compute_link_variable(v1, v3)
+
+        curvature = -np.angle(Ux * Uy_dkx / Ux_dky / Uy) / (dk) ** 2
+        return curvature
 
     def compute_perturbed_state_berry_curvature(
         self,
@@ -118,15 +150,16 @@ class FloquetCurvatureCalculator:
         ky,
         band="conduction",
         dk=1e5,
+        order: int = 2,
     ):
-        """Compute Berry curvature from the first-order corrected Floquet state."""
+        """Compute Berry curvature from the perturbatively corrected Floquet state."""
 
         def perturbed_state(kx, ky, band="conduction"):
             _, perturbed_state = self.perturbation_calculator.compute_perturbed_state(
                 kx,
                 ky,
                 band=band,
-                order=2,
+                order=order,
             )
             return self.state_provider.reconstruct_floquet_state(perturbed_state, time=time)
 

@@ -8,7 +8,7 @@ from ..builders import FloquetBuilder, HFEBuilder
 from ..config import FloquetParameters
 from ..core.driven_bloch_hamiltonian import DrivenBlochHamiltonian
 from .floquet_perturbation_calculator import FloquetPerturbationCalculator
-from .floquet_state_provider import FloquetStateProvider
+from .states import FloquetStateCache, FloquetStateProvider
 
 
 class FloquetVelocityCalculator:
@@ -24,11 +24,16 @@ class FloquetVelocityCalculator:
         self,
         driven_hamiltonian: DrivenBlochHamiltonian,
         floquet_params: FloquetParameters,
+        cache: FloquetStateCache | None = None,
     ):
         """Initialize from one driven model and one Floquet parameter set."""
         self.driven_hamiltonian = driven_hamiltonian
         self.floquet_params = floquet_params
-        self.state_provider = FloquetStateProvider(driven_hamiltonian, floquet_params)
+        self.state_provider = FloquetStateProvider(
+            driven_hamiltonian,
+            floquet_params,
+            cache=cache,
+        )
         self.perturbation_calculator = FloquetPerturbationCalculator(
             driven_hamiltonian,
             floquet_params,

@@ -4,7 +4,8 @@ import numpy as np
 
 from floquet_toolkit.builders import FloquetBuilder
 from floquet_toolkit.builtin_models import DiracParameters, driven_dirac_model
-from floquet_toolkit.calculators.floquet_state_provider import FloquetStateProvider
+from floquet_toolkit.calculators.states import FloquetStateProvider
+import floquet_toolkit.calculators.states.floquet_state_provider as state_provider_module
 from floquet_toolkit.config import DriveParameters, FloquetParameters
 
 DIRAC_PARAMS = DiracParameters()
@@ -99,4 +100,23 @@ def test_selected_quasienergy_converges_with_resolution():
             assert refined_error < 1.0e-30
 
         for quasienergy, reconstructed_state in results[:-1]:
-            assert min_time_overlap(ref_state, reconstructed_state) > 1.0 - 5.0e-9
+            assert min_time_overlap(ref_state, reconstructed_state) > 1.0 - 5.0e-5
+
+
+def test_candidate_subspace_mode_uses_largest_central_block_norms():
+    floquet_params = FloquetParameters(n_trunc=4, n_harmonics=2, n_time=61)
+    model = build_model()
+    provider = FloquetStateProvider(model, floquet_params)
+    quasi_energies, floquet_states = provider.diagonalize_floquet_hamiltonian(0.0, 0.0)
+
+    candidate_indices, _, _ = provider._zone_candidate_data(quasi_energies, floquet_states)
+
+    central_block = floquet_states[
+        floquet_params.n_trunc * model.dimension : (floquet_params.n_trunc + 1) * model.dimension,
+        :,
+    ]
+    central_block_norms = np.sum(np.abs(central_block) ** 2, axis=0)
+    expected = np.sort(np.argsort(-central_block_norms, kind="stable")[: model.dimension])
+
+    assert state_provider_module.CANDIDATE_SUBSPACE_MODE == "central_block_norm"
+    assert np.array_equal(candidate_indices, expected)

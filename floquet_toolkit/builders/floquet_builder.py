@@ -60,7 +60,7 @@ class FloquetBuilder:
         """Build the truncated extended-space Floquet Hamiltonian.
 
         The block indexed by sidebands ``(m, n)`` is
-        ``H_{m-n} + m*hbar*omega*I*delta_{mn}``, with sidebands truncated to
+        ``H_{m-n} - m*hbar*omega*I*delta_{mn}``, with sidebands truncated to
         ``m,n in [-n_trunc, n_trunc]``.
 
         Returns:
@@ -72,7 +72,7 @@ class FloquetBuilder:
         n_harmonics = self.n_harmonics
         N = hs.shape[1]
     
-        # The Floquet Hamiltonian has blocks H_{m-n} + m ω δ_{mn}
+        # The Floquet Hamiltonian has blocks H_{m-n} - m ω δ_{mn}
         # We can construct it as a block matrix where each block is of size N x N
         F_blocks = np.zeros((self.n_blocks, self.n_blocks, N, N), dtype=complex)
         for m in range(-n_trunc, n_trunc + 1):
@@ -86,7 +86,7 @@ class FloquetBuilder:
                     F_blocks[idx_m, idx_n] = hs[hs_idx]
 
                 if m == n:
-                    F_blocks[idx_m, idx_n] -= m * self.hbar * self.omega * np.eye(N)  # m ω δ_{mn}
+                    F_blocks[idx_m, idx_n] -= m * self.hbar * self.omega * np.eye(N)  # -m ω δ_{mn}
 
         # Reshape to (2M+1)*N x (2M+1)*N
         F_matrix = F_blocks.transpose(0, 2, 1, 3).reshape((self.n_blocks) * N, (self.n_blocks) * N)

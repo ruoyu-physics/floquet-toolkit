@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from ..config import DriveParameters
+
 
 def _normalized_polarization_axis(polarization_axis):
     """Return a unit vector specifying the drive-frame x axis in the lab frame."""
@@ -58,3 +60,30 @@ def electric_field_components(
     drive_x = (AL + AR) / np.sqrt(2.0) * omega * np.sin(omega * time)
     drive_y = -(AL - AR) / np.sqrt(2.0) * omega * np.cos(omega * time)
     return _rotate_drive_frame_components(drive_x, drive_y, polarization_axis)
+
+
+def build_circular_drive(
+    amplitude: float,
+    *,
+    units,
+    omega: float,
+    handedness: str = "right",
+    polarization_axis=(1.0, 0.0),
+) -> DriveParameters:
+    """Return circular-drive parameters from one amplitude and handedness."""
+    if handedness == "left":
+        al = float(amplitude)
+        ar = 0.0
+    elif handedness == "right":
+        al = 0.0
+        ar = float(amplitude)
+    else:
+        raise ValueError("handedness must be 'left' or 'right'.")
+
+    return DriveParameters(
+        units=units,
+        omega=omega,
+        AL=al,
+        AR=ar,
+        polarization_axis=polarization_axis,
+    )

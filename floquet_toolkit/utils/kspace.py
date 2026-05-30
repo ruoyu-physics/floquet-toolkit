@@ -34,6 +34,15 @@ def create_cartesian_k_grid(
     return kx_values, ky_values, kx_grid, ky_grid
 
 
+def fermi_momentum(dirac_params) -> float:
+    """Return the Dirac-model Fermi momentum from one parameter bundle."""
+    if dirac_params.e_fermi**2 < dirac_params.mass**2:
+        raise ValueError("Fermi energy must satisfy |e_fermi| >= |mass| to define a real Fermi momentum.")
+    return np.sqrt(dirac_params.e_fermi**2 - dirac_params.mass**2) / (
+        dirac_params.units.hbar * dirac_params.vf
+    )
+
+
 def create_polar_k_grid(
     r_range: tuple[float, float],
     theta_range: tuple[float, float],
@@ -130,7 +139,11 @@ def integrate_polar_grid(
 ):
     """Integrate sampled values on a regular polar grid.
 
-    The integration is a rectangular-rule sum with the polar Jacobian ``r``.
+    The angular integral uses a uniform periodic rectangular rule, while the
+    radial integral uses trapezoidal endpoint weights. This avoids the
+    systematic outer-boundary overcounting that occurs if endpoint-including
+    radial samples are summed with a full ``dr`` weight.
+
     ``values`` may contain leading dimensions, with the final two axes
     corresponding to ``(r, theta)``.
     """
@@ -143,8 +156,13 @@ def integrate_polar_grid(
             "The final two axes of values must match (len(r_values), len(theta_values))."
         )
 
-    dr = r_values[1] - r_values[0] if r_values.size > 1 else 0.0
     dtheta = theta_values[1] - theta_values[0] if theta_values.size > 1 else 0.0
-    jacobian = r_values[:, np.newaxis]
+    angular_integral = np.sum(values, axis=-1) * dtheta
 
-    return np.sum(values * jacobian, axis=(-2, -1)) * dr * dtheta
+    if r_values.size == 1:
+        return np.squeeze(angular_integral * r_values[0], axis=-1) * 0.0
+
+    radial_integrand = angular_integral * r_values
+    if hasattr(np, "trapezoid"):
+        return np.trapezoid(radial_integrand, x=r_values, axis=-1)
+    return np.trapz(radial_integrand, x=r_values, axis=-1)
