@@ -34,11 +34,33 @@ class DiracModel(BuiltinDrivenModelSpec):
         self.vf = self.model_params.vf
         self.e_fermi = self.model_params.e_fermi
 
-    def H_static(self, kx: float, ky: float) -> np.ndarray:
-        """Return the static Dirac Hamiltonian."""
+    def H_static(self, kx, ky) -> np.ndarray:
+        """Return the static Dirac Hamiltonian.
+
+        Broadcasts over array-valued momenta: scalar ``(kx, ky)`` yields a
+        ``(2, 2)`` matrix, while arrays of shape ``S`` yield ``S + (2, 2)``.
+        The trailing matrix axes are added to ``kx``/``ky`` so the Pauli-matrix
+        products broadcast cleanly.
+        """
+        kx = np.asarray(kx)[..., None, None]
+        ky = np.asarray(ky)[..., None, None]
         return self.mass * SIGMA_Z + self.hbar * self.vf * (
             kx * SIGMA_X + ky * SIGMA_Y
         )
+
+    def velocity_operator(self, time, kx, ky, axis):
+        """Return the analytic velocity operator ``(1/hbar) dH_t/dk``.
+
+        For the linear Dirac dispersion ``H_t(t, k) = H_static(k - qA(t)/hbar)``
+        the velocity operator is the constant matrix ``v_f * sigma_axis`` —
+        independent of time, momentum, and the drive. The ``time``, ``kx``, and
+        ``ky`` arguments are accepted for interface compatibility and ignored.
+        """
+        if axis == "x":
+            return self.vf * SIGMA_X
+        if axis == "y":
+            return self.vf * SIGMA_Y
+        raise ValueError("axis must be 'x' or 'y'")
 
     def H_t(self, t: float, kx: float, ky: float) -> np.ndarray:
         """Return the full time-dependent Dirac Hamiltonian with k - qA/hbar."""
@@ -74,6 +96,8 @@ class DiracModel(BuiltinDrivenModelSpec):
             omega=self.omega,
             H_static=self.H_static,
             analytic_static_berry_curvature=self.analytic_static_berry_curvature,
+            analytic_velocity_operator=self.velocity_operator,
+            supports_vectorized_time=True,
             units=self.units,
         )
 

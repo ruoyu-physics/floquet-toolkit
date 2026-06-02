@@ -2,29 +2,57 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import numpy as np
 
 from ..config import DriveParameters
 
 
-def _normalized_polarization_axis(polarization_axis):
-    """Return a unit vector specifying the drive-frame x axis in the lab frame."""
-    if isinstance(polarization_axis, str):
-        if polarization_axis == "x":
+@lru_cache(maxsize=None)
+def _normalized_polarization_axis_cached(key) -> tuple[float, float]:
+    """Return the normalized drive-frame x axis for a hashable axis ``key``.
+
+    Memoized on a hashable key (a string or a coordinate tuple) so the
+    normalization runs once per distinct polarization axis. Because the
+    polarization axis is fixed for the lifetime of a drive, this collapses the
+    hundreds of thousands of identical calls made during a current calculation
+    into a single computation. Returns a plain tuple so the cached value stays
+    immutable (NumPy arrays would be mutable and unhashable).
+    """
+    if isinstance(key, str):
+        if key == "x":
             axis = np.array([1.0, 0.0], dtype=float)
-        elif polarization_axis == "y":
+        elif key == "y":
             axis = np.array([0.0, 1.0], dtype=float)
         else:
             raise ValueError("polarization_axis must be 'x', 'y', or a 2-vector")
     else:
-        axis = np.asarray(polarization_axis, dtype=float)
+        axis = np.asarray(key, dtype=float)
         if axis.shape != (2,):
             raise ValueError("polarization_axis must be 'x', 'y', or a length-2 vector")
 
     norm = np.linalg.norm(axis)
     if norm == 0.0:
         raise ValueError("polarization_axis must be nonzero")
-    return axis / norm
+    normalized = axis / norm
+    return float(normalized[0]), float(normalized[1])
+
+
+def _normalized_polarization_axis(polarization_axis):
+    """Return a unit vector specifying the drive-frame x axis in the lab frame.
+
+    Thin wrapper that converts the (possibly unhashable, e.g. ndarray) input
+    into a hashable key, then delegates to the memoized implementation.
+    """
+    if isinstance(polarization_axis, str):
+        key = polarization_axis
+    else:
+        axis = np.asarray(polarization_axis, dtype=float)
+        if axis.shape != (2,):
+            raise ValueError("polarization_axis must be 'x', 'y', or a length-2 vector")
+        key = (float(axis[0]), float(axis[1]))
+    return np.array(_normalized_polarization_axis_cached(key), dtype=float)
 
 
 def _rotate_drive_frame_components(ax_drive, ay_drive, polarization_axis):

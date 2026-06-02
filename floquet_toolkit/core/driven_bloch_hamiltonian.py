@@ -19,6 +19,8 @@ class DrivenBlochHamiltonian:
         omega: float,
         H_static: Callable | None = None,
         analytic_static_berry_curvature: Callable | None = None,
+        analytic_velocity_operator: Callable | None = None,
+        supports_vectorized_time: bool = False,
         static_average_samples: int = 128,
         units: UnitConvention = UnitConvention.SI_UNITS(),
     ):
@@ -33,10 +35,21 @@ class DrivenBlochHamiltonian:
                 ``H_t`` numerically.
             analytic_static_berry_curvature: Optional callable for analytic
                 static Berry curvature.
+            analytic_velocity_operator: Optional callable
+                ``f(time, kx, ky, axis)`` returning the velocity operator
+                ``(1/hbar) dH_t/dk`` in closed form. When supplied, the
+                velocity calculator uses it instead of finite differencing
+                ``H_t`` — both faster and exact. ``axis`` is ``"x"`` or
+                ``"y"``.
+            supports_vectorized_time: Whether ``H_t`` accepts a 1D array of
+                times and returns a stacked ``(n_time, dim, dim)`` result. When
+                ``True`` the velocity calculator builds the finite-difference
+                operator with a single vectorized call instead of a Python loop
+                over time samples.
             static_average_samples: Number of uniform samples used for the
                 numerical time average when ``H_static`` is omitted.
         """
-    
+
         if static_average_samples <= 0:
             raise ValueError("static_average_samples must be a positive integer")
 
@@ -47,6 +60,8 @@ class DrivenBlochHamiltonian:
         self.period = 2.0 * np.pi / self.omega
         self.static_average_samples = static_average_samples
         self.analytic_static_berry_curvature = analytic_static_berry_curvature
+        self.analytic_velocity_operator = analytic_velocity_operator
+        self.supports_vectorized_time = supports_vectorized_time
         self._static_cache = {}
 
         sample_full = np.asarray(H_t(t=0, kx=0, ky=0), dtype=complex)

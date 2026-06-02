@@ -13,11 +13,25 @@ class FloquetManager:
         self,
         driven_hamiltonian: DrivenBlochHamiltonian,
         floquet_params: FloquetParameters,
+        use_cache: bool = True,
     ):
+        """Initialize the combined facade.
+
+        Args:
+            driven_hamiltonian: The driven Bloch Hamiltonian to analyze.
+            floquet_params: Floquet truncation / sampling parameters.
+            use_cache: Forwarded to the transport manager to enable
+                Floquet-state caching. Defaults to ``True``; set to ``False``
+                only for a one-shot cold run.
+        """
         self.driven_hamiltonian = driven_hamiltonian
         self.floquet_params = floquet_params
         self.local = FloquetLocalManager(driven_hamiltonian, floquet_params)
-        self.transport = FloquetTransportManager(driven_hamiltonian, floquet_params)
+        self.transport = FloquetTransportManager(
+            driven_hamiltonian,
+            floquet_params,
+            use_cache=use_cache,
+        )
 
     def __getattr__(self, name):
         """Delegate legacy attribute access to the local or transport manager."""

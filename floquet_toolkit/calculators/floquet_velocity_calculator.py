@@ -44,6 +44,14 @@ class FloquetVelocityCalculator:
         self.omega = driven_hamiltonian.omega
         self.e_charge = driven_hamiltonian.units.e_charge
         self.hbar = driven_hamiltonian.units.hbar
+        # Optional fast paths advertised by the model (default to the generic
+        # finite-difference loop when absent, e.g. for custom Hamiltonians).
+        self.analytic_velocity_operator = getattr(
+            driven_hamiltonian, "analytic_velocity_operator", None
+        )
+        self.supports_vectorized_time = getattr(
+            driven_hamiltonian, "supports_vectorized_time", False
+        )
 
     def _resolve_band_state(self, eigvals, eigvecs, band):
         """Return the eigenvector associated with a band label or index."""
@@ -83,8 +91,20 @@ class FloquetVelocityCalculator:
         ky,
         axis,
         dk,
+        velocity_operator_fn=None,
     ):
-        """Compute the velocity operator (1/hbar) dH/dk by finite difference."""
+        """Return the velocity operator ``(1/hbar) dH/dk``.
+
+        Resolution order:
+
+        1. If ``velocity_operator_fn`` is supplied (the model provides a closed
+           form for ``dH_t/dk``), use it directly — exact and loop-free.
+        2. Otherwise finite-difference ``hamiltonian``. When the model supports
+           vectorized time (or ``time`` is scalar), evaluate the whole time
+           grid in one call, returning a ``(n_time, dim, dim)`` operator.
+        3. Otherwise fall back to the generic per-time Python loop, preserving
+           behavior for models whose ``H_t`` is not array-aware.
+        """
         if axis == "x":
             delta_kx, delta_ky = dk / 2.0, 0.0
         elif axis == "y":
@@ -92,8 +112,11 @@ class FloquetVelocityCalculator:
         else:
             raise ValueError("axis must be 'x' or 'y'")
 
+        if velocity_operator_fn is not None:
+            return velocity_operator_fn(time, kx, ky, axis)
+
         time = np.asarray(time)
-        if time.ndim == 0:
+        if time.ndim == 0 or self.supports_vectorized_time:
             h_plus = hamiltonian(time, kx + delta_kx, ky + delta_ky)
             h_minus = hamiltonian(time, kx - delta_kx, ky - delta_ky)
             return (h_plus - h_minus) / (self.hbar * dk)
@@ -118,10 +141,15 @@ class FloquetVelocityCalculator:
         ky,
         dk,
         include_charge,
+        velocity_operator_fn=None,
     ):
         """Compute x and y velocity components from one state."""
-        velocity_x = self._velocity_operator(hamiltonian, time, kx, ky, "x", dk)
-        velocity_y = self._velocity_operator(hamiltonian, time, kx, ky, "y", dk)
+        velocity_x = self._velocity_operator(
+            hamiltonian, time, kx, ky, "x", dk, velocity_operator_fn
+        )
+        velocity_y = self._velocity_operator(
+            hamiltonian, time, kx, ky, "y", dk, velocity_operator_fn
+        )
 
         current_x = self._expectation_value(state, velocity_x)
         current_y = self._expectation_value(state, velocity_y)
@@ -171,6 +199,7 @@ class FloquetVelocityCalculator:
             ky,
             dk,
             include_charge,
+            velocity_operator_fn=self.analytic_velocity_operator,
         )
 
     def compute_floquet_velocity_from_state(
@@ -195,6 +224,7 @@ class FloquetVelocityCalculator:
             ky,
             dk,
             include_charge,
+            velocity_operator_fn=self.analytic_velocity_operator,
         )
 
     def compute_perturbed_velocity(
@@ -226,6 +256,7 @@ class FloquetVelocityCalculator:
             ky,
             dk,
             include_charge,
+            velocity_operator_fn=self.analytic_velocity_operator,
         )
 
     def compute_static_velocity(
@@ -275,6 +306,7 @@ class FloquetVelocityCalculator:
             ky,
             dk,
             include_charge,
+            velocity_operator_fn=self.analytic_velocity_operator,
         )
 
     def compute_hfe_velocity(

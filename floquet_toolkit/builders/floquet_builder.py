@@ -41,18 +41,33 @@ class FloquetBuilder:
             harmonic with integer index ``m`` is stored at
             ``hs[m + n_harmonics]``.
         """
-        
         Ht = self.Ht
         ms = np.arange(-self.n_harmonics, self.n_harmonics + 1)
-        hs = np.zeros((2 * self.n_harmonics + 1, *Ht(0).shape), dtype=complex)
-
-        # Sample H(t) at Nt points in [0, T)
+        N = Ht(0).shape[0]
         ts = np.linspace(0, self.period, self.n_time, endpoint=False)
-        for i, t in enumerate(ts):
+
+        # Fast path: evaluate H(t) on the whole time grid in one call and
+        # contract against the Fourier phase factors. This requires ``Ht`` to
+        # be array-aware (returning a stacked ``(n_time, N, N)`` result); when
+        # it is not, we fall back to the scalar per-time loop below.
+        stacked = None
+        try:
+            candidate = np.asarray(Ht(ts), dtype=complex)
+            if candidate.shape == (self.n_time, N, N):
+                stacked = candidate
+        except Exception:
+            stacked = None
+
+        if stacked is not None:
+            phases = np.exp(1j * np.outer(ms, self.omega * ts))  # (2M+1, n_time)
+            return np.einsum("mt,tab->mab", phases, stacked) / self.n_time
+
+        # Generic fallback: sample H(t) at Nt scalar points in [0, T).
+        hs = np.zeros((2 * self.n_harmonics + 1, N, N), dtype=complex)
+        for t in ts:
             ht = Ht(t)
             for j, m in enumerate(ms):
                 hs[j] += ht * np.exp(1j * m * self.omega * t)
-
         hs /= self.n_time  # Average over time samples
         return hs
 

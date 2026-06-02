@@ -24,15 +24,17 @@ class RotatingFrameDiracModel(BuiltinDrivenModelSpec):
         """Return the static rotating-frame Dirac Hamiltonian."""
         return (self.mass - self.hbar * self.omega / 2.0) * SIGMA_Z
 
-    def H_periodic(self, t: float, kx: float, ky: float) -> np.ndarray:
-        """Return the time-periodic rotating-frame contribution."""
-        rotation_matrix = np.array(
-            [
-                [np.cos(self.omega * t), -np.sin(self.omega * t)],
-                [np.sin(self.omega * t), np.cos(self.omega * t)],
-            ]
-        )
-        k_vector = np.array([kx, ky], dtype=float)
+    def H_periodic(self, t, kx, ky) -> np.ndarray:
+        """Return the time-periodic rotating-frame contribution.
+
+        Broadcasts over an array of times: scalar ``t`` yields a ``(2, 2)``
+        matrix, an array of shape ``S`` yields ``S + (2, 2)``. The momentum is
+        shifted by the vector potential, rotated by ``omega t``, then mapped
+        onto the Pauli matrices.
+        """
+        t = np.asarray(t, dtype=float)
+        cos_t = np.cos(self.omega * t)
+        sin_t = np.sin(self.omega * t)
         ax, ay = vector_potential_components(
             t,
             self.omega,
@@ -40,12 +42,13 @@ class RotatingFrameDiracModel(BuiltinDrivenModelSpec):
             self.AR,
             self.polarization_axis,
         )
-        a_vector = np.array([ax, ay], dtype=float)
-
-        rotated_k = rotation_matrix @ (k_vector - self.e_charge * a_vector / self.hbar)
-        return self.hbar * self.vf * (
-            rotated_k[0] * SIGMA_X + rotated_k[1] * SIGMA_Y
-        )
+        shifted_kx = kx - self.e_charge * ax / self.hbar
+        shifted_ky = ky - self.e_charge * ay / self.hbar
+        rotated_kx = cos_t * shifted_kx - sin_t * shifted_ky
+        rotated_ky = sin_t * shifted_kx + cos_t * shifted_ky
+        rotated_kx = np.asarray(rotated_kx)[..., None, None]
+        rotated_ky = np.asarray(rotated_ky)[..., None, None]
+        return self.hbar * self.vf * (rotated_kx * SIGMA_X + rotated_ky * SIGMA_Y)
 
     def H_t(self, t: float, kx: float, ky: float) -> np.ndarray:
         """Return the full rotating-frame Hamiltonian."""
@@ -57,6 +60,7 @@ class RotatingFrameDiracModel(BuiltinDrivenModelSpec):
             H_t=self.H_t,
             omega=self.omega,
             H_static=self.H_static,
+            supports_vectorized_time=True,
             units=self.units,
         )
 

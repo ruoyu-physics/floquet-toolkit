@@ -6,3 +6,5 @@ __pycache__/
 scripts/
 main.py
 .vscode/
+docs/
+benchmarks/

@@ -37,22 +37,32 @@ class GrapheneModel(BuiltinDrivenModelSpec):
         delta_3 = self.lattice_spacing * np.array([-np.sqrt(3.0) / 2.0, -0.5])
         self.neighbor_vectors = np.array([delta_1, delta_2, delta_3])
 
-    def structure_factor(self, kx: float, ky: float) -> complex:
-        """Return the nearest-neighbor graphene structure factor."""
-        k_vector = np.array([kx, ky], dtype=float)
-        phases = np.exp(1j * (self.neighbor_vectors @ k_vector))
-        return np.sum(phases)
+    def structure_factor(self, kx, ky):
+        """Return the nearest-neighbor graphene structure factor.
 
-    def H_static(self, kx: float, ky: float) -> np.ndarray:
-        """Return the static graphene Bloch Hamiltonian."""
-        gamma_k = self.structure_factor(kx, ky)
-        return np.array(
-            [
-                [self.mass, -self.hopping * gamma_k],
-                [-self.hopping * np.conj(gamma_k), -self.mass],
-            ],
-            dtype=complex,
-        )
+        Broadcasts over array-valued momenta: scalar ``(kx, ky)`` returns a
+        scalar, arrays of shape ``S`` return shape ``S``.
+        """
+        k_vector = np.stack(
+            [np.asarray(kx, dtype=float), np.asarray(ky, dtype=float)],
+            axis=-1,
+        )  # (..., 2)
+        phases = np.exp(1j * (k_vector @ self.neighbor_vectors.T))  # (..., 3)
+        return np.sum(phases, axis=-1)
+
+    def H_static(self, kx, ky) -> np.ndarray:
+        """Return the static graphene Bloch Hamiltonian.
+
+        Scalar ``(kx, ky)`` yields a ``(2, 2)`` matrix; arrays of shape ``S``
+        yield ``S + (2, 2)``.
+        """
+        gamma_k = np.asarray(self.structure_factor(kx, ky), dtype=complex)
+        hamiltonian = np.zeros(gamma_k.shape + (2, 2), dtype=complex)
+        hamiltonian[..., 0, 0] = self.mass
+        hamiltonian[..., 1, 1] = -self.mass
+        hamiltonian[..., 0, 1] = -self.hopping * gamma_k
+        hamiltonian[..., 1, 0] = -self.hopping * np.conj(gamma_k)
+        return hamiltonian
 
     def H_t(self, t: float, kx: float, ky: float) -> np.ndarray:
         """Return the full time-dependent graphene Hamiltonian with k - qA/hbar."""
@@ -74,6 +84,7 @@ class GrapheneModel(BuiltinDrivenModelSpec):
             omega=self.omega,
             H_static=self.H_static,
             analytic_static_berry_curvature=None,
+            supports_vectorized_time=True,
             units=self.units,
         )
 
