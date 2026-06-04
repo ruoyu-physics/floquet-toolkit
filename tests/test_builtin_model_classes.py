@@ -54,7 +54,9 @@ def test_floquet_manager_diagonalize_floquet_hamiltonian_returns_square_eigensys
 
 def test_transport_manager_cache_preserves_floquet_current_values():
     model = DiracModel(DIRAC_PARAMS, DRIVE_PARAMS).to_driven_hamiltonian()
-    transport_manager = FloquetTransportManager(model, FLOQUET_PARAMS)
+    # Caching is opt-in (off by default); enable it explicitly to test that it
+    # preserves the current values produced by the uncached calculator.
+    transport_manager = FloquetTransportManager(model, FLOQUET_PARAMS, use_cache=True)
     uncached_calculator = FloquetCurrentCalculator(model, FLOQUET_PARAMS)
 
     assert isinstance(transport_manager.cache, FloquetStateCache)

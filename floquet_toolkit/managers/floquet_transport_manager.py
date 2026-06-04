@@ -17,7 +17,7 @@ class FloquetTransportManager:
         driven_hamiltonian: DrivenBlochHamiltonian,
         floquet_params: FloquetParameters,
         cache: FloquetStateCache | None = None,
-        use_cache: bool = True,
+        use_cache: bool = False,
     ):
         """Initialize the transport manager.
 
@@ -28,12 +28,11 @@ class FloquetTransportManager:
                 calculators. When provided, it is always used (and implies
                 caching is on), regardless of ``use_cache``.
             use_cache: Whether to enable Floquet-state caching when no explicit
-                ``cache`` is given. Defaults to ``True``. Caching is roughly
-                free for a single cold pass (each momentum is visited once) and
-                gives a large speedup whenever states are revisited — e.g.
-                multiple observables sharing a grid, repeated calls, or adaptive
-                refinement. Set to ``False`` only for a one-shot cold run where
-                you want to avoid retaining cached arrays.
+                ``cache`` is given. Defaults to ``False``: a single cold pass
+                visits each momentum once, so caching only adds key-building and
+                copy overhead there. Set to ``True`` for workflows that revisit
+                the same momenta — multiple observables sharing a grid, repeated
+                calls, or adaptive refinement — where it gives a large speedup.
         """
         self.driven_hamiltonian = driven_hamiltonian
         self.floquet_params = floquet_params
