@@ -56,7 +56,7 @@ the callables and metadata that define a 2D driven Bloch problem:
     batched construction. **This single flag is what unlocks the batched
     velocity map and batched Floquet-matrix construction.**
   - `analytic_velocity_operator(time, kx, ky, axis)` — a closed form for
-    `(1/ħ) ∂H/∂k`, avoiding finite differences.
+    $(1/\hbar)\,\partial H/\partial k$, avoiding finite differences.
 
 ### `config.py` — numerical knobs and units
 Frozen dataclasses: `UnitConvention` (SI vs. unitless), `DriveParameters`
@@ -111,7 +111,7 @@ The trickiest part of the codebase, deliberately split by responsibility:
   single-`k` entry point; `select_floquet_state_from_eigensystem` does the
   selection given an *already-diagonalized* eigensystem (so batched callers
   don't re-diagonalize). Also reconstructs the time-domain state
-  `ψ(t) = Σ_m v_m e^{-imωt}`.
+  $\psi(t) = \sum_m v_m e^{-im\omega t}$.
 - [`FloquetStateTracker`](../floquet_toolkit/calculators/states/floquet_state_tracker.py)
   — **connection**. Selection is per-point and can hop branches; the tracker
   propagates one branch consistently across a grid via BFS from a seed. This is
@@ -137,43 +137,97 @@ The trickiest part of the codebase, deliberately split by responsibility:
 
 ---
 
-## Worked example: a Floquet current on a Fermi disk
+## Worked example: a Cartesian Floquet current with pointwise selection
 
 This is the path the recent batching work reshaped, and it shows the layering in
 action. Calling
-`transport.integrate_floquet_current_on_fermi_disk(..., state_selection_algorithm="tracked")`:
+`transport.integrate_floquet_current_on_fermi_disk(..., state_selection_algorithm="pointwise", grid_type="cartesian")`:
 
 1. **Manager** forwards to `FloquetCurrentCalculator`.
-2. **Current calculator** builds the k-grid (`_build_integration_grid`, polar or
-   masked-Cartesian) and runs the **tracker** to get a grid of branch-consistent
-   Floquet states.
-3. It hands the grid + states to the **velocity calculator's**
-   `compute_floquet_velocity_map_from_states`, which in one batched pass:
-   reconstructs every `ψ(k, t)`, builds the velocity operators `(v_x, v_y)` over
-   the whole `(k, t)` grid, and evaluates `⟨ψ|v|ψ⟩`.
+2. **Current calculator** builds the k-grid with `_build_integration_grid`: a
+   regular Cartesian grid over the square enclosing the disk, plus a boolean
+   `mask` (from `utils/kspace.create_circular_mask`) marking which points fall
+   inside the radius.
+3. It hands the full grid to the **velocity calculator's**
+   `compute_floquet_velocity_map`, which selects and evaluates in batch:
+   - **Selection (per point, independent).** When the model is batchable, it
+     diagonalizes the Floquet Hamiltonian at every momentum in one call
+     (`provider.diagonalize_floquet_hamiltonian_batched`), then for each point
+     picks the eigenstate with maximal overlap onto the target static band
+     (`provider.select_floquet_state_from_eigensystem`). No tracker — each
+     momentum is decided on its own.
+   - **Evaluation (batched).** It forwards the selected states to
+     `compute_floquet_velocity_map_from_states`, which in one pass reconstructs
+     every $\psi(k, t)$, builds the velocity operators $(v_x, v_y)$ over the
+     whole $(k, t)$ grid, and evaluates $\langle\psi|v|\psi\rangle$.
 4. The current calculator integrates the resulting `(n_kx, n_ky, n_time)` maps
-   with the rule for the grid type (`_integrate_current_map` → `utils/kspace`).
+   with `_integrate_current_map` → `utils.integrate_cartesian_grid`, which
+   applies the **mask** (out-of-disk points contribute zero) and the uniform
+   area weight. The map is computed on every grid point; the mask — not a
+   pre-filter — is what restricts the integral to the disk.
 
 ```
-integrate_floquet_current_on_fermi_disk        (manager → current calc)
-  ├─ _build_integration_grid                    (kx_grid, ky_grid)
-  ├─ tracker.track_floquet_states_on_grid       (grid of selected states)   ← sequential
-  ├─ velocity.compute_floquet_velocity_map_from_states                      ← batched
-  │     reconstruct ψ(k,t) · build (v_x,v_y) · ⟨ψ|v|ψ⟩
-  └─ _integrate_current_map                      (→ utils.integrate_*_grid)
+integrate_floquet_current_on_fermi_disk(pointwise, cartesian)   (manager → current calc)
+  ├─ _build_integration_grid                     (kx_grid, ky_grid, mask)
+  └─ velocity.compute_floquet_velocity_map
+        ├─ provider.diagonalize_floquet_hamiltonian_batched      ← batched
+        ├─ provider.select_floquet_state_from_eigensystem (×k)   ← per point, independent
+        └─ compute_floquet_velocity_map_from_states              ← batched
+              reconstruct ψ(k,t) · build (v_x,v_y) · ⟨ψ|v|ψ⟩
+  └─ _integrate_current_map                       (→ utils.integrate_cartesian_grid, masked)
 ```
 
-The **pointwise** algorithm differs only in step 2/3: there is no tracker; the
-velocity calculator's `compute_floquet_velocity_map` batch-diagonalizes the grid
-and selects each point independently. The `adaptive_cartesian` grid type stays
-on a per-point path (it refines the grid on the fly, so there is no fixed grid to
-batch). The **adiabatic** current reuses the generic per-point
-`_integrate_local_current` because its local quantity isn't a Floquet velocity.
+Other paths differ only in how the *grid* and *selection* are produced, then
+reuse the same evaluator and integrator:
+- **`grid_type="polar"`** swaps the grid + integration rule (polar Jacobian,
+  no mask) but keeps the same selection and velocity-map calls.
+- **`state_selection_algorithm="tracked"`** replaces the independent per-point
+  selection with `FloquetStateTracker`, which propagates one branch across the
+  grid via BFS from a seed (inherently *sequential*), then feeds its state grid
+  straight into `compute_floquet_velocity_map_from_states`.
+- **`grid_type="adaptive_cartesian"`** stays on a per-point path (it refines the
+  grid on the fly, so there is no fixed grid to batch).
+- The **adiabatic** current reuses the generic per-point
+  `_integrate_local_current` because its local quantity isn't a Floquet velocity.
 
 The key design line: **the velocity calculator produces a local map; the current
 calculator only integrates it.** Selection ("which state") is kept separate from
-evaluation ("velocity of that state"), which is what lets the batched and tracked
-paths share one evaluator.
+evaluation ("velocity of that state"), which is what lets the pointwise and
+tracked paths share one batched evaluator.
+
+---
+
+## Floquet conventions (signs & normalization)
+
+These are the sign/normalization choices baked into
+[`FloquetBuilder`](../floquet_toolkit/builders/floquet_builder.py) and matched
+everywhere downstream (state reconstruction, quasienergy folding). They're worth
+pinning down because a wrong sign or a missing `1/T` leaves results *plausible
+but subtly off* — and because the conventions are coupled across files, so they
+can't be inferred from any one of them. Pay attention to these when comparing
+against a paper or another code.
+
+- **Fourier harmonics.** $H_m = \frac{1}{T} \int_0^T H(t)\, e^{+im\omega t}\, dt$,
+  evaluated numerically as a uniform average over `n_time` time samples. The
+  time-domain Hamiltonian reconstructs with the opposite sign:
+  $H(t) = \sum_m H_m e^{-im\omega t}$. Harmonics are stored with index $m$ at
+  array position `m + n_harmonics` (so $m = 0$ is the middle), shape
+  `(2·n_harmonics + 1, N, N)`.
+- **Floquet (extended-space) matrix.** Block $(m, n)$ is
+  $H_{m-n} - m\hbar\omega\,\delta_{mn}$, with sidebands $m, n$ truncated to
+  `[−n_trunc, n_trunc]` — an `(n_blocks·N) × (n_blocks·N)` matrix where
+  `n_blocks = 2·n_trunc + 1`. The off-diagonal coupling uses $H_{m-n}$ only when
+  $|m - n| \le$ `n_harmonics`, else zero. So **`n_harmonics` (how many Fourier
+  components exist) is distinct from `n_trunc` (how many sidebands the matrix
+  keeps).**
+- **State reconstruction matches the Hamiltonian.** A Floquet eigenvector's
+  sideband blocks $v_m$ rebuild the time-domain state as
+  $\psi(t) = \sum_m v_m e^{-im\omega t}$ — the same sign convention as $H(t)$,
+  which is why the reconstruction and harmonic conventions must always move
+  together.
+- **Quasienergy zone.** Quasienergies are defined modulo $\hbar\omega$; folding
+  (when requested) maps them into the principal zone
+  $[-\hbar\omega/2,\ \hbar\omega/2)$.
 
 ---
 
