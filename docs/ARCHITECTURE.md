@@ -207,7 +207,7 @@ but subtly off* — and because the conventions are coupled across files, so the
 can't be inferred from any one of them. Pay attention to these when comparing
 against a paper or another code.
 
-- **Fourier harmonics.** $H_m = \frac{1}{T} \int_0^T H(t)\, e^{+im\omega t}\, dt$,
+- **Fourier harmonics.** $H_m = \frac{1}{T} \int_0^T H(t)\ e^{+im\omega t}\ dt$,
   evaluated numerically as a uniform average over `n_time` time samples. The
   time-domain Hamiltonian reconstructs with the opposite sign:
   $H(t) = \sum_m H_m e^{-im\omega t}$. Harmonics are stored with index $m$ at
@@ -221,8 +221,8 @@ against a paper or another code.
   components exist) is distinct from `n_trunc` (how many sidebands the matrix
   keeps).**
 - **State reconstruction matches the Hamiltonian.** A Floquet eigenvector's
-  sideband blocks $v_m$ rebuild the time-domain state as
-  $\psi(t) = \sum_m v_m e^{-im\omega t}$ — the same sign convention as $H(t)$,
+  sideband blocks $u_m$ rebuild the time-domain state as
+  $\psi(t) = \sum_m u_m e^{-im\omega t}$ — the same sign convention as $H(t)$,
   which is why the reconstruction and harmonic conventions must always move
   together.
 - **Quasienergy zone.** Quasienergies are defined modulo $\hbar\omega$; folding
