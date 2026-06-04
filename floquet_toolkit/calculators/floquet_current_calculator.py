@@ -239,6 +239,45 @@ class FloquetCurrentCalculator:
             "grid_type must be either 'polar' or 'cartesian'."
         )
 
+    def _integrate_current_map(self, local_jx, local_jy, grid_data, time):
+        """Integrate precomputed local current maps over the sampled grid.
+
+        ``local_jx``/``local_jy`` have shape ``(n_kx, n_ky, n_time)``; the
+        result reduces the two momentum axes with the rule appropriate to
+        ``grid_data["grid_type"]`` (masked rectangular for Cartesian, polar
+        Jacobian for polar).
+        """
+        grid_type = grid_data["grid_type"]
+        if grid_type == "cartesian":
+            integrated_jx = integrate_cartesian_grid(
+                np.moveaxis(local_jx, -1, 0),
+                grid_data["kx_values"],
+                grid_data["ky_values"],
+                mask=grid_data["mask"],
+            )
+            integrated_jy = integrate_cartesian_grid(
+                np.moveaxis(local_jy, -1, 0),
+                grid_data["kx_values"],
+                grid_data["ky_values"],
+                mask=grid_data["mask"],
+            )
+            return time, integrated_jx, integrated_jy
+
+        if grid_type == "polar":
+            integrated_jx = integrate_polar_grid(
+                np.moveaxis(local_jx, -1, 0),
+                grid_data["r_values"],
+                grid_data["theta_values"],
+            )
+            integrated_jy = integrate_polar_grid(
+                np.moveaxis(local_jy, -1, 0),
+                grid_data["r_values"],
+                grid_data["theta_values"],
+            )
+            return time, integrated_jx, integrated_jy
+
+        raise ValueError("grid_type must be either 'polar' or 'cartesian'.")
+
     def _integrate_local_current(
         self,
         current_fn,
@@ -249,7 +288,13 @@ class FloquetCurrentCalculator:
         adaptive_tol: float | None = None,
         adaptive_max_depth: int | None = None,
     ):
-        """Integrate a time-dependent local current function over a circular grid."""
+        """Integrate a per-point local current function over a circular grid.
+
+        Used for observables evaluated one momentum at a time (e.g. the
+        adiabatic current); the batched Floquet current is built directly from
+        the velocity map instead (see
+        :meth:`FloquetVelocityCalculator.compute_floquet_velocity_map`).
+        """
         if grid_type == "adaptive_cartesian":
             return self._integrate_local_current_adaptive_cartesian(
                 current_fn,
@@ -274,63 +319,19 @@ class FloquetCurrentCalculator:
         )
         kx_grid = grid_data["kx_grid"]
         ky_grid = grid_data["ky_grid"]
+        mask = grid_data["mask"]
+        local_jx = np.zeros((n_k_points, n_k_points, time.size), dtype=float)
+        local_jy = np.zeros((n_k_points, n_k_points, time.size), dtype=float)
 
-        if grid_type == "cartesian":
-            kx_values = grid_data["kx_values"]
-            ky_values = grid_data["ky_values"]
-            mask = grid_data["mask"]
-            local_jx = np.zeros((n_k_points, n_k_points, time.size), dtype=float)
-            local_jy = np.zeros((n_k_points, n_k_points, time.size), dtype=float)
+        for i in range(n_k_points):
+            for j in range(n_k_points):
+                if mask is not None and not mask[i, j]:
+                    continue
+                jx_t, jy_t = current_fn(time, kx_grid[i, j], ky_grid[i, j])
+                local_jx[i, j, :] = jx_t
+                local_jy[i, j, :] = jy_t
 
-            for i in range(n_k_points):
-                for j in range(n_k_points):
-                    if not mask[i, j]:
-                        continue
-                    jx_t, jy_t = current_fn(time, kx_grid[i, j], ky_grid[i, j])
-                    local_jx[i, j, :] = jx_t
-                    local_jy[i, j, :] = jy_t
-
-            integrated_jx = integrate_cartesian_grid(
-                np.moveaxis(local_jx, -1, 0),
-                kx_values,
-                ky_values,
-                mask=mask,
-            )
-            integrated_jy = integrate_cartesian_grid(
-                np.moveaxis(local_jy, -1, 0),
-                kx_values,
-                ky_values,
-                mask=mask,
-            )
-            return time, integrated_jx, integrated_jy
-
-        if grid_type == "polar":
-            r_values = grid_data["r_values"]
-            theta_values = grid_data["theta_values"]
-            local_jx = np.zeros((n_k_points, n_k_points, time.size), dtype=float)
-            local_jy = np.zeros((n_k_points, n_k_points, time.size), dtype=float)
-
-            for i in range(n_k_points):
-                for j in range(n_k_points):
-                    jx_t, jy_t = current_fn(time, kx_grid[i, j], ky_grid[i, j])
-                    local_jx[i, j, :] = jx_t
-                    local_jy[i, j, :] = jy_t
-
-            integrated_jx = integrate_polar_grid(
-                np.moveaxis(local_jx, -1, 0),
-                r_values,
-                theta_values,
-            )
-            integrated_jy = integrate_polar_grid(
-                np.moveaxis(local_jy, -1, 0),
-                r_values,
-                theta_values,
-            )
-            return time, integrated_jx, integrated_jy
-
-        raise ValueError(
-            "grid_type must be one of 'polar', 'cartesian', or 'adaptive_cartesian'."
-        )
+        return self._integrate_current_map(local_jx, local_jy, grid_data, time)
 
     def _integrate_tracked_floquet_current(
         self,
@@ -363,74 +364,16 @@ class FloquetCurrentCalculator:
             band=band,
             init_mode=band_selection_mode,
         )
-        tracked_states = tracked["floquet_states"]
-        if self.cache is not None:
-            self.cache.precompute_reconstructed_states_on_grid(
-                self.velocity_calculator.state_provider,
-                self.state_tracker,
+        local_jx, local_jy = (
+            self.velocity_calculator.compute_floquet_velocity_map_from_states(
+                time,
                 kx_grid,
                 ky_grid,
-                time,
-                band=band,
-                seed_indices=tracked["seed_indices"],
-                init_mode=band_selection_mode,
+                tracked["floquet_states"],
+                include_charge=include_charge,
             )
-        local_jx = np.zeros((n_k_points, n_k_points, time.size), dtype=float)
-        local_jy = np.zeros((n_k_points, n_k_points, time.size), dtype=float)
-
-        if grid_type == "cartesian":
-            mask = grid_data["mask"]
-            for i in range(n_k_points):
-                for j in range(n_k_points):
-                    if not mask[i, j]:
-                        continue
-                    jx_t, jy_t = self.velocity_calculator.compute_floquet_velocity_from_state(
-                        time,
-                        kx_grid[i, j],
-                        ky_grid[i, j],
-                        tracked_states[i, j, :],
-                        include_charge=include_charge,
-                    )
-                    local_jx[i, j, :] = jx_t
-                    local_jy[i, j, :] = jy_t
-
-            integrated_jx = integrate_cartesian_grid(
-                np.moveaxis(local_jx, -1, 0),
-                grid_data["kx_values"],
-                grid_data["ky_values"],
-                mask=mask,
-            )
-            integrated_jy = integrate_cartesian_grid(
-                np.moveaxis(local_jy, -1, 0),
-                grid_data["kx_values"],
-                grid_data["ky_values"],
-                mask=mask,
-            )
-            return time, integrated_jx, integrated_jy
-
-        for i in range(n_k_points):
-            for j in range(n_k_points):
-                jx_t, jy_t = self.velocity_calculator.compute_floquet_velocity_from_state(
-                    time,
-                    kx_grid[i, j],
-                    ky_grid[i, j],
-                    tracked_states[i, j, :],
-                    include_charge=include_charge,
-                )
-                local_jx[i, j, :] = jx_t
-                local_jy[i, j, :] = jy_t
-
-        integrated_jx = integrate_polar_grid(
-            np.moveaxis(local_jx, -1, 0),
-            grid_data["r_values"],
-            grid_data["theta_values"],
         )
-        integrated_jy = integrate_polar_grid(
-            np.moveaxis(local_jy, -1, 0),
-            grid_data["r_values"],
-            grid_data["theta_values"],
-        )
-        return time, integrated_jx, integrated_jy
+        return self._integrate_current_map(local_jx, local_jy, grid_data, time)
 
     def integrate_floquet_current_on_fermi_disk(
         self,
@@ -496,22 +439,45 @@ class FloquetCurrentCalculator:
                 "state_selection_algorithm must be either 'tracked' or 'pointwise'."
             )
 
-        return self._integrate_local_current(
-            lambda time, kx, ky: self.velocity_calculator.compute_floquet_velocity(
-                time,
-                kx,
-                ky,
-                band=band,
-                band_selection_mode=band_selection_mode,
-                include_charge=include_charge,
-            ),
+        if grid_type == "adaptive_cartesian":
+            return self._integrate_local_current(
+                lambda time, kx, ky: self.velocity_calculator.compute_floquet_velocity(
+                    time,
+                    kx,
+                    ky,
+                    band=band,
+                    band_selection_mode=band_selection_mode,
+                    include_charge=include_charge,
+                ),
+                k_radius=k_radius,
+                k_center=k_center,
+                n_k_points=n_k_points,
+                grid_type=grid_type,
+                adaptive_tol=adaptive_tol,
+                adaptive_max_depth=adaptive_max_depth,
+            )
+
+        time = np.linspace(
+            0.0,
+            self.period,
+            self.floquet_params.n_time,
+            endpoint=False,
+        )
+        grid_data = self._build_integration_grid(
             k_radius=k_radius,
             k_center=k_center,
             n_k_points=n_k_points,
             grid_type=grid_type,
-            adaptive_tol=adaptive_tol,
-            adaptive_max_depth=adaptive_max_depth,
         )
+        local_jx, local_jy = self.velocity_calculator.compute_floquet_velocity_map(
+            time,
+            grid_data["kx_grid"],
+            grid_data["ky_grid"],
+            band=band,
+            include_charge=include_charge,
+            band_selection_mode=band_selection_mode,
+        )
+        return self._integrate_current_map(local_jx, local_jy, grid_data, time)
 
     def integrate_adiabatic_current_on_fermi_disk(
         self,

@@ -13,7 +13,7 @@ class FloquetManager:
         self,
         driven_hamiltonian: DrivenBlochHamiltonian,
         floquet_params: FloquetParameters,
-        use_cache: bool = True,
+        use_cache: bool = False,
     ):
         """Initialize the combined facade.
 
@@ -21,8 +21,8 @@ class FloquetManager:
             driven_hamiltonian: The driven Bloch Hamiltonian to analyze.
             floquet_params: Floquet truncation / sampling parameters.
             use_cache: Forwarded to the transport manager to enable
-                Floquet-state caching. Defaults to ``True``; set to ``False``
-                only for a one-shot cold run.
+                Floquet-state caching. Defaults to ``False``; set to ``True``
+                for workflows that revisit the same momenta.
         """
         self.driven_hamiltonian = driven_hamiltonian
         self.floquet_params = floquet_params

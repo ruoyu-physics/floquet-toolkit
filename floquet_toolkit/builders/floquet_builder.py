@@ -106,4 +106,64 @@ class FloquetBuilder:
         # Reshape to (2M+1)*N x (2M+1)*N
         F_matrix = F_blocks.transpose(0, 2, 1, 3).reshape((self.n_blocks) * N, (self.n_blocks) * N)
         return F_matrix
+
+    def compute_fourier_harmonics_batched(self, kxs, kys):
+        """Compute Fourier harmonics for many momenta at once.
+
+        Unlike :meth:`compute_fourier_harmonics` (which uses the single-momentum
+        ``self.Ht(t)``), this requires ``self.Ht`` to be the raw
+        ``Ht(t, kx, ky)`` that broadcasts over a momentum axis and a time axis.
+        It evaluates ``H`` on the full ``(k, t)`` grid in one call.
+
+        Args:
+            kxs, kys: 1D arrays of momenta, shape ``(n_k,)``.
+
+        Returns:
+            Complex array ``(n_k, 2*n_harmonics + 1, N, N)``.
+        """
+        kxs = np.asarray(kxs)
+        kys = np.asarray(kys)
+        ms = np.arange(-self.n_harmonics, self.n_harmonics + 1)
+        ts = np.linspace(0, self.period, self.n_time, endpoint=False)
+        # H over every (k, t): shape (n_k, n_time, N, N).
+        h_all = np.asarray(
+            self.Ht(ts[None, :], kxs[:, None], kys[:, None]), dtype=complex
+        )
+        phases = np.exp(1j * np.outer(ms, self.omega * ts))  # (2M+1, n_time)
+        return np.einsum("mt,itab->imab", phases, h_all) / self.n_time
+
+    def compute_floquet_hamiltonians_batched(self, kxs, kys):
+        """Build the truncated Floquet Hamiltonian for many momenta at once.
+
+        Vectorized counterpart of :meth:`compute_floquet_hamiltonian`. The
+        block-Toeplitz structure (block ``(m, n)`` depends only on ``m - n``) is
+        filled one diagonal band at a time — ``2*n_harmonics + 1`` band-fills
+        rather than the ``(2*n_trunc + 1)**2`` per-matrix loop — batched over k.
+
+        Args:
+            kxs, kys: 1D arrays of momenta, shape ``(n_k,)``.
+
+        Returns:
+            Complex array ``(n_k, n_blocks*N, n_blocks*N)``.
+        """
+        hs = self.compute_fourier_harmonics_batched(kxs, kys)
+        n_k = hs.shape[0]
+        N = hs.shape[-1]
+        n_trunc = self.n_trunc
+        n_harmonics = self.n_harmonics
+        n_blocks = self.n_blocks
+
+        f_blocks = np.zeros((n_k, n_blocks, n_blocks, N, N), dtype=complex)
+        for harm in range(-n_harmonics, n_harmonics + 1):
+            rows = np.arange(max(0, harm), n_blocks + min(0, harm))
+            cols = rows - harm
+            f_blocks[:, rows, cols] = hs[:, harm + n_harmonics][:, None, :, :]
+
+        m_vals = np.arange(-n_trunc, n_trunc + 1)
+        diag = np.arange(n_blocks)
+        f_blocks[:, diag, diag] -= (
+            (m_vals * self.hbar * self.omega)[None, :, None, None] * np.eye(N)
+        )
+
+        return f_blocks.transpose(0, 1, 3, 2, 4).reshape(n_k, n_blocks * N, n_blocks * N)
     

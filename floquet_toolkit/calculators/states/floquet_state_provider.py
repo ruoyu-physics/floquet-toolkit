@@ -160,6 +160,31 @@ class FloquetStateProvider:
             )
         return quasi_energy, floquet_states
 
+    def diagonalize_floquet_hamiltonian_batched(self, kxs, kys):
+        """Diagonalize the Floquet Hamiltonian at many momenta in one batch.
+
+        Uses the vectorized construction (one ``(k, t)`` evaluation of ``Ht``)
+        and a single batched ``eigh`` over the stacked matrices. Intended for
+        grid/sweep workflows; single-momentum callers use
+        :meth:`diagonalize_floquet_hamiltonian`. Requires the model's ``Ht`` to
+        broadcast over a momentum axis (``supports_vectorized_time``).
+
+        Returns:
+            Tuple ``(quasi_energy, floquet_states)`` with shapes
+            ``(n_k, D)`` and ``(n_k, D, D)``.
+        """
+        builder = FloquetBuilder(
+            self.driven_hamiltonian.Ht,
+            self.omega,
+            self.hbar,
+            self.floquet_params,
+        )
+        hamiltonians = builder.compute_floquet_hamiltonians_batched(
+            np.asarray(kxs, dtype=float),
+            np.asarray(kys, dtype=float),
+        )
+        return np.linalg.eigh(hamiltonians)
+
     def resolve_band_index(self, static_energy, band):
         """Convert a band label or integer into an eigenvector column index.
 
@@ -224,8 +249,6 @@ class FloquetStateProvider:
             if cached is not None:
                 return cached
 
-        static_energy, static_states = self.diagonalize_static_hamiltonian(kx, ky)
-
         if H0 is not None:
             quasi_energy, floquet_states = np.linalg.eigh(H0)
         else:
@@ -234,6 +257,59 @@ class FloquetStateProvider:
                 ky,
             )
 
+        selected = self.select_floquet_state_from_eigensystem(
+            kx,
+            ky,
+            quasi_energy,
+            floquet_states,
+            band=band,
+            band_selection_mode=band_selection_mode,
+        )
+        if H0 is None and self.cache is not None:
+            self.cache.store_selected_state(
+                kx,
+                ky,
+                selected[0],
+                selected[1],
+                selected[2],
+                band=band,
+                band_selection_mode=band_selection_mode,
+            )
+        return selected
+
+    def select_floquet_state_from_eigensystem(
+        self,
+        kx,
+        ky,
+        quasi_energy,
+        floquet_states,
+        band="conduction",
+        band_selection_mode: str = "overlap",
+    ):
+        """Select a band-connected eigenstate from a precomputed eigensystem.
+
+        Carries out the overlap-based selection for one momentum given an
+        already-diagonalized Floquet eigensystem, so callers that diagonalize
+        a whole grid in one batched call (see
+        :meth:`diagonalize_floquet_hamiltonian_batched`) can reuse the result
+        instead of re-diagonalizing per point. ``select_floquet_state`` is the
+        single-momentum entry point built on top of this.
+
+        Args:
+            kx: Momentum along x.
+            ky: Momentum along y.
+            quasi_energy: Quasienergies from the Floquet eigensystem.
+            floquet_states: Extended-space eigenvectors from the same
+                eigensystem.
+            band: Target band selector, `conduction`, `valence`, or an index.
+            band_selection_mode: State-selection rule; only ``"overlap"`` is
+                supported.
+
+        Returns:
+            Column index of the selected extended-space eigenstate, the target
+            static state, and the selected eigenstate.
+        """
+        static_energy, static_states = self.diagonalize_static_hamiltonian(kx, ky)
         band_index = self.resolve_band_index(static_energy, band)
         target_state = static_states[:, band_index]
         candidate_indices, _, candidate_states_t0 = self._zone_candidate_data(
@@ -253,18 +329,7 @@ class FloquetStateProvider:
             candidate_states_t0[:, local_index],
             floquet_states[:, band_index],
         )
-        selected = (band_index, target_state, selected_state)
-        if H0 is None and self.cache is not None:
-            self.cache.store_selected_state(
-                kx,
-                ky,
-                selected[0],
-                selected[1],
-                selected[2],
-                band=band,
-                band_selection_mode=band_selection_mode,
-            )
-        return selected
+        return band_index, target_state, selected_state
 
     def reconstruct_floquet_state(self, floquet_state, time):
         """Reconstruct time-dependent Floquet modes from sideband components.
