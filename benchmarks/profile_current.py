@@ -1,7 +1,7 @@
 """Profile a single Floquet current calculation to locate the bottleneck.
 
-Runs one ``integrate_floquet_current_on_fermi_disk`` call (the pointwise polar
-path the production scripts use) under ``cProfile`` and reports the heaviest
+Runs one ``integrate_current`` call on a pointwise polar quadrature (the path
+the production scripts use) under ``cProfile`` and reports the heaviest
 functions, with eigendecomposition and Hamiltonian/drive-field construction
 called out explicitly.
 
@@ -43,7 +43,12 @@ if _REPO_ROOT not in sys.path:
 
 import numpy as np  # noqa: E402  (imported after sys.path / thread setup)
 
-from floquet_toolkit import DiracModel, DiracParameters, FloquetTransportManager  # noqa: E402
+from floquet_toolkit import (  # noqa: E402
+    DiracModel,
+    DiracParameters,
+    FloquetTransportManager,
+    KQuadrature,
+)
 from floquet_toolkit.config import FloquetParameters, MEV_TO_J, UnitConvention  # noqa: E402
 from floquet_toolkit.utils import build_circular_drive, fermi_momentum  # noqa: E402
 
@@ -64,13 +69,13 @@ def current_peak(amplitude: float, n_k_points: int) -> float:
     """Return ``max_t |j(t)|`` for one circular-drive amplitude (cold: fresh manager)."""
     drive = build_circular_drive(amplitude, units=SI_UNITS, omega=OMEGA, handedness="right")
     manager = FloquetTransportManager(DiracModel(DIRAC_PARAMS, drive).to_driven_hamiltonian(), FLOQUET_PARAMS)
-    _, integrated_jx, integrated_jy = manager.integrate_floquet_current_on_fermi_disk(
-        k_radius=fermi_momentum(DIRAC_PARAMS),
-        n_k_points=n_k_points,
+    quadrature = KQuadrature.polar(fermi_momentum(DIRAC_PARAMS), n_k_points=n_k_points)
+    _, integrated_jx, integrated_jy = manager.integrate_current(
+        quadrature,
+        kind="floquet",
         include_charge=True,
         state_selection_algorithm="pointwise",
         band_selection_mode="overlap",
-        grid_type="polar",
     )
     return float(np.max(np.hypot(integrated_jx, integrated_jy)))
 
