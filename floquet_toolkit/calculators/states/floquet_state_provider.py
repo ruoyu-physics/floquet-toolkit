@@ -37,6 +37,11 @@ class FloquetStateProvider:
         self.n_trunc = floquet_params.n_trunc
         self.n_blocks = floquet_params.n_blocks
         self.hbar = driven_hamiltonian.units.hbar
+        # Whether the model's callables broadcast over a momentum axis, enabling
+        # the batched grid construction/diagonalization paths below.
+        self.supports_vectorized_time = getattr(
+            driven_hamiltonian, "supports_vectorized_time", False
+        )
 
     def _fold_quasi_energies_to_zone(self, quasi_energy):
         """Fold quasienergies into the principal Floquet Brillouin zone."""
@@ -185,6 +190,27 @@ class FloquetStateProvider:
         )
         return np.linalg.eigh(hamiltonians)
 
+    def diagonalize_static_hamiltonian_batched(self, kxs, kys):
+        """Diagonalize ``H_static`` at many momenta in one batched ``eigh``.
+
+        Vectorized counterpart of :meth:`diagonalize_static_hamiltonian`.
+        Requires ``H_static`` to broadcast over a momentum axis (true for the
+        built-in models, which carry leading batch axes through to the matrix).
+
+        Args:
+            kxs, kys: 1D arrays of momenta, shape ``(n_k,)``.
+
+        Returns:
+            Tuple ``(energies, states)`` with shapes ``(n_k, D)`` and
+            ``(n_k, D, D)``.
+        """
+        kxs = np.asarray(kxs, dtype=float)
+        kys = np.asarray(kys, dtype=float)
+        h_static = np.asarray(
+            self.driven_hamiltonian.H_static(kxs, kys), dtype=complex
+        )
+        return np.linalg.eigh(h_static)
+
     def resolve_band_index(self, static_energy, band):
         """Convert a band label or integer into an eigenvector column index.
 
@@ -330,6 +356,91 @@ class FloquetStateProvider:
             floquet_states[:, band_index],
         )
         return band_index, target_state, selected_state
+
+    def select_floquet_states_on_grid(
+        self,
+        kx_flat,
+        ky_flat,
+        band="conduction",
+        band_selection_mode: str = "overlap",
+    ):
+        """Select the band-connected Floquet state independently at each momentum.
+
+        Batches the expensive Floquet-matrix construction/diagonalization over
+        the whole momentum list in one call (when the model supports it), then
+        runs the cheap per-point overlap selection on the precomputed
+        eigensystems. Falls back to the per-momentum path for models whose
+        ``Ht`` is not momentum-batchable. The per-point selection result is
+        identical to calling :meth:`select_floquet_state` at each momentum.
+
+        Args:
+            kx_flat, ky_flat: 1D arrays of momenta, shape ``(n_k,)``.
+            band: Target band label or integer index.
+            band_selection_mode: State-selection rule; only ``"overlap"``.
+
+        Returns:
+            ``(n_k, n_blocks * dimension)`` array of selected extended-space
+            eigenvectors.
+        """
+        kx_flat = np.asarray(kx_flat, dtype=float).ravel()
+        ky_flat = np.asarray(ky_flat, dtype=float).ravel()
+        n_points = kx_flat.size
+        n_states = self.n_blocks * self.dimension
+        selected = np.empty((n_points, n_states), dtype=complex)
+
+        if self.supports_vectorized_time:
+            quasi_energy, floquet_states = self.diagonalize_floquet_hamiltonian_batched(
+                kx_flat, ky_flat
+            )
+            for index in range(n_points):
+                _, _, state = self.select_floquet_state_from_eigensystem(
+                    kx_flat[index],
+                    ky_flat[index],
+                    quasi_energy[index],
+                    floquet_states[index],
+                    band=band,
+                    band_selection_mode=band_selection_mode,
+                )
+                selected[index] = state
+        else:
+            for index in range(n_points):
+                _, _, state = self.select_floquet_state(
+                    kx_flat[index],
+                    ky_flat[index],
+                    band=band,
+                    band_selection_mode=band_selection_mode,
+                )
+                selected[index] = state
+        return selected
+
+    def reconstruct_floquet_states_batched(self, floquet_states_flat, time):
+        """Reconstruct a batch of single Floquet eigenvectors over a time grid.
+
+        Vectorized counterpart of :meth:`reconstruct_floquet_state` for a stack
+        of single eigenvectors. Mirrors that method's time-squeeze: scalar
+        ``time`` drops the time axis.
+
+        Args:
+            floquet_states_flat: ``(n_points, n_blocks * dimension)`` array of
+                extended-space eigenvectors.
+            time: Scalar time or 1D time grid.
+
+        Returns:
+            ``(n_points, n_time, dimension)`` for a time grid, or
+            ``(n_points, dimension)`` for scalar ``time``.
+        """
+        original_time = np.asarray(time)
+        time = np.atleast_1d(original_time).astype(float)
+        m_omega = np.arange(-self.n_trunc, self.n_trunc + 1) * self.omega
+        exponentials = np.exp(-1j * np.outer(m_omega, time))  # (n_blocks, n_time)
+        v_m = np.asarray(floquet_states_flat).reshape(
+            -1, self.n_blocks, self.dimension
+        )
+        # state(p, t, d) = sum_m exp(m, t) * v(p, m, d)
+        states = np.einsum("mt,pmd->ptd", exponentials, v_m)
+        if original_time.ndim == 0:
+            return states[:, 0, :]
+        return states
 
     def reconstruct_floquet_state(self, floquet_state, time):
         """Reconstruct time-dependent Floquet modes from sideband components.

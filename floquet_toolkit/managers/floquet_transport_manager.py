@@ -7,6 +7,7 @@ from ..calculators import (
 )
 from ..config import FloquetParameters
 from ..core.driven_bloch_hamiltonian import DrivenBlochHamiltonian
+from ..utils.kquadrature import KQuadrature
 
 
 class FloquetTransportManager:
@@ -95,52 +96,59 @@ class FloquetTransportManager:
             order=order,
         )
 
-    def integrate_floquet_current_on_fermi_disk(
+    def integrate_current(
         self,
-        k_radius,
-        k_center=(0.0, 0.0),
-        n_k_points=21,
+        quadrature: KQuadrature,
+        kind: str = "floquet",
         band="conduction",
-        include_charge=False,
-        state_selection_algorithm: str = "tracked",
+        include_charge: bool = False,
         band_selection_mode: str = "overlap",
-        grid_type: str = "polar",
-        adaptive_tol: float | None = None,
-        adaptive_max_depth: int | None = None,
+        state_selection_algorithm: str = "tracked",
     ):
-        """Integrate the exact Floquet current over a circular momentum region."""
-        return self.current_calculator.integrate_floquet_current_on_fermi_disk(
-            k_radius=k_radius,
-            k_center=k_center,
-            n_k_points=n_k_points,
+        """Integrate a local current over an explicit k-space quadrature.
+
+        Build a :class:`~floquet_toolkit.utils.kquadrature.KQuadrature`
+        (``KQuadrature.polar``/``KQuadrature.cartesian``, or a custom one) and
+        select which current ``kind`` (``"floquet"``/``"adiabatic"``) to
+        integrate. See
+        :meth:`FloquetCurrentCalculator.integrate_current` for details.
+        """
+        return self.current_calculator.integrate_current(
+            quadrature,
+            kind=kind,
             band=band,
             include_charge=include_charge,
-            state_selection_algorithm=state_selection_algorithm,
             band_selection_mode=band_selection_mode,
-            grid_type=grid_type,
-            adaptive_tol=adaptive_tol,
-            adaptive_max_depth=adaptive_max_depth,
+            state_selection_algorithm=state_selection_algorithm,
         )
 
-    def integrate_adiabatic_current_on_fermi_disk(
+    def integrate_adaptive_current(
         self,
         k_radius,
+        kind: str = "floquet",
         k_center=(0.0, 0.0),
         n_k_points=21,
         band="conduction",
         include_charge=False,
-        grid_type: str = "polar",
+        band_selection_mode: str = "overlap",
+        state_selection_algorithm: str = "pointwise",
         adaptive_tol: float | None = None,
         adaptive_max_depth: int | None = None,
     ):
-        """Integrate the adiabatic current over a circular momentum region."""
-        return self.current_calculator.integrate_adiabatic_current_on_fermi_disk(
-            k_radius=k_radius,
+        """Integrate a local current with adaptive Cartesian refinement.
+
+        The data-dependent counterpart of :meth:`integrate_current`; see
+        :meth:`FloquetCurrentCalculator.integrate_adaptive_current`.
+        """
+        return self.current_calculator.integrate_adaptive_current(
+            k_radius,
+            kind=kind,
             k_center=k_center,
             n_k_points=n_k_points,
             band=band,
             include_charge=include_charge,
-            grid_type=grid_type,
+            band_selection_mode=band_selection_mode,
+            state_selection_algorithm=state_selection_algorithm,
             adaptive_tol=adaptive_tol,
             adaptive_max_depth=adaptive_max_depth,
         )

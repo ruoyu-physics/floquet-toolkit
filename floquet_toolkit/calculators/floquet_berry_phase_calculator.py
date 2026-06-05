@@ -1,7 +1,7 @@
 import numpy as np
 from functools import partial
 
-from ..utils.kspace import (
+from ..utils.kquadrature import (
     create_cartesian_k_grid,
     create_circular_mask,
     create_polar_k_grid,
@@ -157,21 +157,14 @@ class FloquetBerryPhaseCalculator:
             seed_indices=seed_indices,
         )
         tracked_states = tracked["floquet_states"]
-        reconstructed_states = np.empty(
-            tracked_states.shape[:2] + np.asarray(
-                self.state_provider.reconstruct_floquet_state(
-                    tracked_states[0, 0, :],
-                    time=time,
-                )
-            ).shape,
-            dtype=complex,
+        n_grid_x, n_grid_y, n_states = tracked_states.shape
+        reconstructed_flat = self.state_provider.reconstruct_floquet_states_batched(
+            tracked_states.reshape(n_grid_x * n_grid_y, n_states),
+            time,
         )
-        for i in range(tracked_states.shape[0]):
-            for j in range(tracked_states.shape[1]):
-                reconstructed_states[i, j, ...] = self.state_provider.reconstruct_floquet_state(
-                    tracked_states[i, j, :],
-                    time=time,
-                )
+        reconstructed_states = reconstructed_flat.reshape(
+            (n_grid_x, n_grid_y) + reconstructed_flat.shape[1:]
+        )
         return reconstructed_states, mask
 
     def _build_state_grid_on_shared_corner_lattice(
@@ -211,30 +204,51 @@ class FloquetBerryPhaseCalculator:
         mask,
         return_wilson_surface_phase: bool = False,
     ):
-        """Integrate one shared-corner state grid by local plaquette phases."""
-        plaquette_product = None
-        local_phase_sum = None
-        for i, j in np.argwhere(mask):
-            v1 = state_grid[i, j, ...]
-            v2 = state_grid[i + 1, j, ...]
-            v3 = state_grid[i, j + 1, ...]
-            v4 = state_grid[i + 1, j + 1, ...]
-            ux = self.curvature_calculator._compute_link_variable(v1, v2)
-            uy_dkx = self.curvature_calculator._compute_link_variable(v2, v4)
-            ux_dky = self.curvature_calculator._compute_link_variable(v3, v4)
-            uy = self.curvature_calculator._compute_link_variable(v1, v3)
-            plaquette_factor = ux * uy_dkx / ux_dky / uy
-            if plaquette_product is None:
-                plaquette_product = np.ones_like(plaquette_factor, dtype=complex)
-                local_phase_sum = np.zeros_like(np.angle(plaquette_factor), dtype=float)
-            plaquette_product *= plaquette_factor
-            local_phase_sum += np.angle(plaquette_factor)
+        """Integrate one shared-corner state grid by local plaquette phases.
 
-        if plaquette_product is None:
+        Vectorized over all plaquettes at once: the four corner states of every
+        plaquette are array slices of ``state_grid``, the link variables are
+        inner products along the state axis, and unmasked plaquettes are set to
+        the identity factor (1) so they drop out of the product/phase sum.
+        """
+        mask = np.asarray(mask, dtype=bool)
+        if not mask.any():
             return np.zeros((), dtype=float)
+
+        state_grid = np.asarray(state_grid)
+        # Corner states of every plaquette: (n_x, n_y, [n_time,] dim).
+        v1 = state_grid[:-1, :-1]
+        v2 = state_grid[1:, :-1]
+        v3 = state_grid[:-1, 1:]
+        v4 = state_grid[1:, 1:]
+
+        # A time axis (floquet, time-resolved) sits between the plaquette axes
+        # and the state axis; broadcast the per-plaquette mask over it.
+        has_time = state_grid.ndim == 4
+        plaquette_mask = mask[..., None] if has_time else mask
+        atol = 1e-12
+
+        def link(state_a, state_b):
+            increment = np.sum(np.conj(state_a) * state_b, axis=-1)
+            if np.any(np.abs(increment)[mask] < atol):
+                raise ValueError(
+                    "Near-zero link variable encountered; check state continuity "
+                    "and dk choice."
+                )
+            # Neutralize unmasked plaquettes before normalizing so they cannot
+            # divide by zero; they contribute factor 1 below.
+            increment = np.where(plaquette_mask, increment, 1.0)
+            return increment / np.abs(increment)
+
+        ux = link(v1, v2)
+        uy_dkx = link(v2, v4)
+        ux_dky = link(v3, v4)
+        uy = link(v1, v3)
+        plaquette_factor = ux * uy_dkx / ux_dky / uy  # unmasked entries == 1
+
         if return_wilson_surface_phase:
-            return np.angle(plaquette_product)
-        return local_phase_sum
+            return np.angle(np.prod(plaquette_factor, axis=(0, 1)))
+        return np.sum(np.angle(plaquette_factor), axis=(0, 1))
 
     def _compute_local_curvature(
         self,
@@ -529,6 +543,7 @@ class FloquetBerryPhaseCalculator:
                 curvature_values,
                 r_values,
                 theta_values,
+                mode="trapezoidal",
             )
 
         raise ValueError(

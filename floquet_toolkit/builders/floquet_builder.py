@@ -44,7 +44,7 @@ class FloquetBuilder:
         Ht = self.Ht
         ms = np.arange(-self.n_harmonics, self.n_harmonics + 1)
         N = Ht(0).shape[0]
-        ts = np.linspace(0, self.period, self.n_time, endpoint=False)
+        ts = self.floquet_params.time_grid(self.period)
 
         # Fast path: evaluate H(t) on the whole time grid in one call and
         # contract against the Fourier phase factors. This requires ``Ht`` to
@@ -124,7 +124,7 @@ class FloquetBuilder:
         kxs = np.asarray(kxs)
         kys = np.asarray(kys)
         ms = np.arange(-self.n_harmonics, self.n_harmonics + 1)
-        ts = np.linspace(0, self.period, self.n_time, endpoint=False)
+        ts = self.floquet_params.time_grid(self.period)
         # H over every (k, t): shape (n_k, n_time, N, N).
         h_all = np.asarray(
             self.Ht(ts[None, :], kxs[:, None], kys[:, None]), dtype=complex

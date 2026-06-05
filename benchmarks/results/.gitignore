@@ -1,0 +1,3 @@
+# Generated profiling artifacts are transient — keep the folder, ignore contents.
+*
+!.gitignore

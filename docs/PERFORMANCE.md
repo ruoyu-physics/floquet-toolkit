@@ -2,12 +2,14 @@
 
 A curated log of performance work: what was measured, what changed, and *why*.
 Git holds the exact diffs; this file holds the reasoning and the numbers that
-diffs can't show. Reproduce the measurements with
-[`../benchmarks/profile_current.py`](../benchmarks/profile_current.py).
+diffs can't show. Reproduce the measurements with the scripts in
+[`../benchmarks/`](../benchmarks/).
 
 All timings below are single-threaded, on an 8-core development laptop
-(NumPy + OpenBLAS), on one `integrate_floquet_current_on_fermi_disk` call
-(pointwise polar path, Dirac model) at `n_k_points = 41`, `A = 1.5e-9`.
+(NumPy + OpenBLAS), on one fixed-quadrature
+`integrate_current(KQuadrature.polar(...), kind="floquet",
+state_selection_algorithm="pointwise")` call (Dirac model) at
+`n_k_points = 41`, `A = 1.5e-9`.
 
 > **Cold vs. warm — read this first.** Two regimes have very different costs and
 > it's easy to conflate them:
@@ -165,20 +167,59 @@ Construction batching is now shipped (the eigh / GPU paths were *not* pursued):
   band-fill. The per-k `compute_floquet_hamiltonian` is kept unchanged.
 - `FloquetStateProvider.diagonalize_floquet_hamiltonian_batched` does one batched
   `eigh` over the stack.
-- `FloquetCurrentCalculator._integrate_local_current` batch-primes all grid
-  eigensystems before the per-point loop (`_prime_batched_eigensystems`), so grid
-  integration uses the batched construction while **single-momentum callers and
-  the adaptive/tracked paths keep the per-k path**. Gated on
-  `supports_vectorized_time`, with a per-k fallback otherwise.
+- `FloquetStateProvider.select_floquet_states_on_grid` uses the batched
+  construction/diagonalization path for independent pointwise grid selection
+  when `supports_vectorized_time` is enabled, with a per-k fallback for custom
+  non-vectorized models.
+- Fixed-quadrature current integration (`integrate_current`) evaluates velocity
+  maps on the quadrature grid and contracts them with `KQuadrature.integrate`.
+  Adaptive refinement remains a separate per-point path because the grid is
+  data-dependent; tracked selection remains sequential, but its selected state
+  grid still feeds the batched velocity evaluator.
 
 Verified bit-identical: batched vs per-k construction and eigenvalues agree to
 **0.0**; the production scan matches the pre-change baseline at `rtol=1e-6`;
 full test suite green. Measured cold single calc (n_k=41): **915 ms → 628 ms
 (~1.46×)** — in line with the projection.
 
+---
+
+## Velocity / current maps (`compute_floquet_velocity_map`)
+
+A *velocity map* evaluates `max_t |j(k,t)|` over a single-amplitude k-grid (the
+`plot_local_floquet_current_map.py` workload). The library provides a vectorized
+`FloquetVelocityCalculator.compute_floquet_velocity_map` (one batched `eigh` +
+batched selection + batched velocity); the per-k Python loop is the old path.
+
+Measured on a Fermi disk, n_axis=81 → **5025 k-points** (n_trunc=11, n_time=61),
+on an 8-core (≈4 physical) laptop, BLAS pinned to 1 thread per worker:
+
+| Path | Time | Gain |
+| --- | --- | --- |
+| per-k Python loop (reference) | 2472 ms | — |
+| **batched map (serial)** | 1788 ms | **1.38×** vs loop — free, single-thread, no overhead |
+| **batched map (k-point parallel)** | **632 ms** | **2.83×** vs batched serial (≈4 physical cores) |
+| combined vs per-k loop | 2472 → 632 ms | **~3.9×** |
+
+Maps are bit-identical across all three paths (`serial vs parallel = 0.0`,
+`loop vs batched serial ~1.8×10⁻²⁸`).
+
+Notes:
+- **Batching alone (1.38×) is the free, low-risk win** — use
+  `compute_floquet_velocity_map`, not a per-k loop.
+- **k-point parallelism is a crossover win.** At small grids the fixed
+  per-worker overhead (process spawn + model rebuild) loses: n_axis=25
+  (441 points) measured **0.89×** (slower). It only pays off for large grids
+  (5025 points → 2.83×). Parallelize maps only above the crossover.
+- The parallel multiplier here (2.83×) is *smaller* than parallelizing the
+  un-batched loop would show, because batching already removed the cheap
+  Python-loop work — but the absolute time (632 ms) is the best. Reproduce with
+  `benchmarks/bench_velocity_map_parallel.py`.
+
 ## Reproducing
 
 ```bash
 python3 -m benchmarks.profile_current            # cold breakdown for one current calc
 python3 -m benchmarks.profile_current 51 2.0e-9  # custom n_k_points, amplitude
+python3 -m benchmarks.bench_velocity_map_parallel 81 -1   # velocity map: serial vs parallel
 ```

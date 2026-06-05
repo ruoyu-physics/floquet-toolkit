@@ -12,6 +12,7 @@ from .builtin_models import (
     rotating_frame_dirac_model,
 )
 from .config import DriveParameters, FloquetParameters, UnitConvention
+from .utils.kquadrature import KQuadrature
 
 __all__ = [
     "FloquetLocalManager",
@@ -28,4 +29,5 @@ __all__ = [
     "UnitConvention",
     "DriveParameters",
     "FloquetParameters",
+    "KQuadrature",
 ]

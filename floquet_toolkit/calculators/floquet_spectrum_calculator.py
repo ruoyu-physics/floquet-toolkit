@@ -121,20 +121,71 @@ class FloquetSpectrumCalculator:
         ky_values = np.asarray(ky_values, dtype=float)
 
         n_states = self.n_blocks * self.dimension
-        quasi_energies = np.zeros((len(kx_values), len(ky_values), n_states))
-        central_block_weights = np.zeros((len(kx_values), len(ky_values), n_states))
-        band_overlaps = np.zeros((len(kx_values), len(ky_values), n_states))
+        out_shape = (kx_values.size, ky_values.size, n_states)
 
-        for i, kx in enumerate(kx_values):
-            for j, ky in enumerate(ky_values):
-                quasi_energy, weights, band_overlap = self.compute_quasi_energies(
-                    kx,
-                    ky,
-                    band=band,
-                    fold_to_zone=fold_to_zone,
-                )
-                quasi_energies[i, j] = quasi_energy
-                central_block_weights[i, j] = weights
-                band_overlaps[i, j] = band_overlap
+        if not self.state_provider.supports_vectorized_time:
+            quasi_energies = np.zeros(out_shape)
+            central_block_weights = np.zeros(out_shape)
+            band_overlaps = np.zeros(out_shape)
+            for i, kx in enumerate(kx_values):
+                for j, ky in enumerate(ky_values):
+                    quasi_energy, weights, band_overlap = self.compute_quasi_energies(
+                        kx,
+                        ky,
+                        band=band,
+                        fold_to_zone=fold_to_zone,
+                    )
+                    quasi_energies[i, j] = quasi_energy
+                    central_block_weights[i, j] = weights
+                    band_overlaps[i, j] = band_overlap
+            return quasi_energies, central_block_weights, band_overlaps
 
-        return quasi_energies, central_block_weights, band_overlaps
+        # Batched path: build/diagonalize every Floquet and static matrix on the
+        # grid in one call each, then vectorize the spectral-weight projection.
+        provider = self.state_provider
+        kx_grid, ky_grid = np.meshgrid(kx_values, ky_values, indexing="ij")
+        kx_flat = kx_grid.ravel()
+        ky_flat = ky_grid.ravel()
+
+        quasi_energy, floquet_states = provider.diagonalize_floquet_hamiltonian_batched(
+            kx_flat, ky_flat
+        )  # (M, n_states), (M, n_states, n_states)
+        static_energy, static_states = provider.diagonalize_static_hamiltonian_batched(
+            kx_flat, ky_flat
+        )  # (M, D), (M, D, D)
+
+        if fold_to_zone:
+            quasi_energy = self._fold_quasi_energies(quasi_energy)
+            order = np.argsort(quasi_energy, axis=-1)
+            quasi_energy = np.take_along_axis(quasi_energy, order, axis=-1)
+            floquet_states = np.take_along_axis(
+                floquet_states, order[:, None, :], axis=-1
+            )
+
+        # Band index is a fixed column for a label (eigh returns ascending), so
+        # it is identical at every momentum.
+        band_index = provider.resolve_band_index(static_energy[0], band)
+        target_static = static_states[:, :, band_index]  # (M, D)
+
+        # Central-block (m=0) weight.
+        central = floquet_states[
+            :,
+            self.n_trunc * self.dimension : (self.n_trunc + 1) * self.dimension,
+            :,
+        ]  # (M, D, n_states)
+        central_block_weight = np.sum(np.abs(central) ** 2, axis=1)  # (M, n_states)
+
+        # Reconstruction at t=0 is the sum over sideband blocks (all phases = 1).
+        v_blocks = floquet_states.reshape(
+            -1, self.n_blocks, self.dimension, n_states
+        )
+        reconstructed_t0 = v_blocks.sum(axis=1)  # (M, D, n_states)
+        band_overlap = (
+            np.abs(np.einsum("md,mds->ms", target_static.conj(), reconstructed_t0)) ** 2
+        )  # (M, n_states)
+
+        return (
+            quasi_energy.reshape(out_shape),
+            central_block_weight.reshape(out_shape),
+            band_overlap.reshape(out_shape),
+        )

@@ -145,6 +145,22 @@ class FloquetParameters:
         """Return the total number of Floquet blocks, 2*n_trunc + 1."""
         return 2 * self.n_trunc + 1
 
+    def time_grid(self, period: float) -> np.ndarray:
+        """Return the canonical time-sampling grid over one drive period.
+
+        Produces ``n_time`` uniformly spaced samples in ``[0, period)``
+        (``endpoint=False``) -- the single grid definition used for Fourier
+        integration and time-resolved observables, so callers do not duplicate
+        the ``np.linspace`` formula (and cannot drift on ``n_time``).
+
+        Args:
+            period: Drive period ``T = 2*pi/omega`` in the convention's time
+                units, e.g. ``DriveParameters.period`` or
+                ``DrivenBlochHamiltonian.period``.
+        """
+        return np.linspace(0.0, period, self.n_time, endpoint=False)
+
+
 DRIVE_PARAMS = DriveParameters()
 """Default drive parameter set."""
 

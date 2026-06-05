@@ -51,3 +51,55 @@ def parallel_map(func, items, n_jobs: int = -1) -> list:
         # ``executor.map`` preserves input order, so results line up with
         # ``items`` exactly like a serial list comprehension would.
         return list(executor.map(func, items))
+
+
+def _contiguous_chunks(n_items: int, n_chunks: int) -> list:
+    """Return contiguous ``(start, stop)`` index ranges splitting ``n_items``.
+
+    Produces at most ``n_chunks`` balanced, order-preserving pieces (empty
+    chunks are dropped).
+    """
+    if n_items <= 0:
+        return []
+    base, extra = divmod(n_items, n_chunks)
+    ranges = []
+    start = 0
+    for i in range(n_chunks):
+        size = base + (1 if i < extra else 0)
+        if size == 0:
+            break
+        ranges.append((start, start + size))
+        start += size
+    return ranges
+
+
+def parallel_chunk_map(func, items, n_jobs: int = -1) -> list:
+    """Map ``func`` over contiguous CHUNKS of ``items`` across processes.
+
+    Unlike :func:`parallel_map` (one call per item), each worker receives a
+    whole contiguous chunk and ``func(chunk)`` is called once per chunk, so
+    expensive per-worker setup (rebuilding a model, one batched diagonalization)
+    is amortized across many items. ``func(chunk)`` must return a sequence
+    aligned with its chunk; the per-chunk results are concatenated back into a
+    single list in input order.
+
+    This is the primitive for **k-point parallelization** of a single-amplitude
+    grid: split the momenta into one chunk per core and compute each chunk —
+    ideally with the vectorized/batched routines — in its own process. (For a
+    multi-amplitude sweep, parallelize amplitudes with :func:`parallel_map`
+    instead; do not nest the two.)
+
+    Falls back to a single in-process ``func(items)`` call when only one worker
+    or chunk is needed. ``func`` and the items must be picklable (define ``func``
+    at module level).
+    """
+    items = list(items)
+    workers = resolve_worker_count(n_jobs, len(items))
+    if workers <= 1:
+        return list(func(items))
+    chunks = [items[start:stop] for start, stop in _contiguous_chunks(len(items), workers)]
+    with ProcessPoolExecutor(max_workers=len(chunks)) as executor:
+        flat = []
+        for chunk_result in executor.map(func, chunks):
+            flat.extend(chunk_result)
+        return flat

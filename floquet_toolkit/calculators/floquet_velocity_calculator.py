@@ -16,8 +16,8 @@ class FloquetVelocityCalculator:
 
     The returned values are single-particle velocity expectation values by
     default. Set ``include_charge=True`` to multiply by the configured charge
-    ``q`` and return
-    charge-current expectations instead.
+    ``e_charge`` (from the unit convention) and return charge-current
+    expectations instead.
     """
 
     def __init__(
@@ -58,24 +58,20 @@ class FloquetVelocityCalculator:
         band_index = self.state_provider.resolve_band_index(eigvals, band)
         return eigvecs[:, band_index]
 
-    def _expectation_value(self, state, operator):
-        """Compute <state|operator|state> for one state or a time series."""
-        state = np.asarray(state)
+    @staticmethod
+    def _expectation(states, operator):
+        """Return ``<psi|operator|psi>`` for one state or a batch of states.
+
+        ``states`` has shape ``(..., dim)`` and ``operator`` broadcasts to
+        ``(..., dim, dim)`` (a bare ``(dim, dim)`` constant operator is fine).
+        The leading axes are preserved, so this single primitive serves both the
+        single-state case (leading shape ``()`` -> scalar; ``(n_time,)`` ->
+        ``(n_time,)``) and the batched grid case (leading shape ``G + (n_time,)``).
+        """
+        states = np.asarray(states)
         operator = np.asarray(operator)
-
-        if state.ndim == 1 and operator.ndim == 2:
-            return np.vdot(state, operator @ state)
-
-        if state.ndim == 2 and operator.ndim == 2:
-            return np.einsum("ti,ij,tj->t", np.conj(state), operator, state)
-
-        if state.ndim == 2 and operator.ndim == 3:
-            return np.einsum("ti,tij,tj->t", np.conj(state), operator, state)
-
-        raise ValueError(
-            "state/operator shapes are incompatible for expectation-value "
-            "evaluation"
-        )
+        op_state = np.matmul(operator, states[..., None])[..., 0]
+        return np.sum(np.conj(states) * op_state, axis=-1)
 
     def _finalize_velocity(self, expectation, include_charge):
         """Convert a velocity expectation into a charge current if requested."""
@@ -154,8 +150,8 @@ class FloquetVelocityCalculator:
             hamiltonian, time, kx, ky, dk, velocity_operator_fn
         )
 
-        current_x = self._expectation_value(state, velocity_x)
-        current_y = self._expectation_value(state, velocity_y)
+        current_x = self._expectation(state, velocity_x)
+        current_y = self._expectation(state, velocity_y)
         return (
             self._finalize_velocity(current_x, include_charge),
             self._finalize_velocity(current_y, include_charge),
@@ -180,7 +176,7 @@ class FloquetVelocityCalculator:
             band: Target band label or integer index.
             dk: Momentum increment used for the velocity-operator derivative.
             include_charge: If ``True``, multiply the velocity expectation by
-                the configured charge ``q`` to return a charge current.
+                the configured charge ``e_charge`` to return a charge current.
             band_selection_mode: State-selection rule passed to
                 ``FloquetStateProvider``.
         """
@@ -230,31 +226,6 @@ class FloquetVelocityCalculator:
             velocity_operator_fn=self.analytic_velocity_operator,
         )
 
-    def _reconstruct_states_batched(self, floquet_states_flat, time):
-        """Reconstruct a batch of single Floquet eigenvectors over a time grid.
-
-        Vectorized counterpart of
-        ``FloquetStateProvider.reconstruct_floquet_state`` for a stack of
-        single eigenvectors.
-
-        Args:
-            floquet_states_flat: ``(n_points, n_blocks * dimension)`` array of
-                extended-space eigenvectors.
-            time: 1D time grid of length ``n_time``.
-
-        Returns:
-            ``(n_points, n_time, dimension)`` reconstructed states.
-        """
-        provider = self.state_provider
-        time = np.atleast_1d(np.asarray(time, dtype=float))
-        m_omega = np.arange(-provider.n_trunc, provider.n_trunc + 1) * provider.omega
-        exponentials = np.exp(-1j * np.outer(m_omega, time))  # (n_blocks, n_time)
-        v_m = np.asarray(floquet_states_flat).reshape(
-            -1, provider.n_blocks, provider.dimension
-        )
-        # state(p, t, d) = sum_m exp(m, t) * v(p, m, d)
-        return np.einsum("mt,pmd->ptd", exponentials, v_m)
-
     def _velocity_operators_batched(self, time, kx_flat, ky_flat, dk):
         """Build velocity operators for a flat batch of momenta over a time grid.
 
@@ -282,17 +253,6 @@ class FloquetVelocityCalculator:
         return self._velocity_operators(
             self.Ht, t_b, kx_b, ky_b, dk, velocity_operator_fn
         )
-
-    @staticmethod
-    def _velocity_expectation_batched(states, operator):
-        """``<psi|operator|psi>`` for batched states and a broadcastable operator.
-
-        ``states`` has shape ``(..., dim)`` and ``operator`` broadcasts to
-        ``(..., dim, dim)`` (a bare ``(dim, dim)`` constant operator is fine).
-        """
-        operator = np.asarray(operator)
-        op_state = np.matmul(operator, states[..., None])[..., 0]
-        return np.sum(np.conj(states) * op_state, axis=-1)
 
     def compute_floquet_velocity_map_from_states(
         self,
@@ -332,12 +292,14 @@ class FloquetVelocityCalculator:
         kx_flat = kx_grid.ravel()
         ky_flat = ky_grid.ravel()
 
-        reconstructed = self._reconstruct_states_batched(states_flat, time)
+        reconstructed = self.state_provider.reconstruct_floquet_states_batched(
+            states_flat, time
+        )
         velocity_x, velocity_y = self._velocity_operators_batched(
             time, kx_flat, ky_flat, dk
         )
-        current_x = self._velocity_expectation_batched(reconstructed, velocity_x)
-        current_y = self._velocity_expectation_batched(reconstructed, velocity_y)
+        current_x = self._expectation(reconstructed, velocity_x)
+        current_y = self._expectation(reconstructed, velocity_y)
 
         jx_map = self._finalize_velocity(current_x, include_charge)
         jy_map = self._finalize_velocity(current_y, include_charge)
@@ -376,35 +338,14 @@ class FloquetVelocityCalculator:
         kx_grid = np.asarray(kx_grid, dtype=float)
         ky_grid = np.asarray(ky_grid, dtype=float)
         grid_shape = kx_grid.shape
-        kx_flat = kx_grid.ravel()
-        ky_flat = ky_grid.ravel()
 
         n_states = provider.n_blocks * provider.dimension
-        selected = np.empty((kx_flat.size, n_states), dtype=complex)
-
-        if self.supports_vectorized_time:
-            quasi_energy, floquet_states = (
-                provider.diagonalize_floquet_hamiltonian_batched(kx_flat, ky_flat)
-            )
-            for index in range(kx_flat.size):
-                _, _, state = provider.select_floquet_state_from_eigensystem(
-                    kx_flat[index],
-                    ky_flat[index],
-                    quasi_energy[index],
-                    floquet_states[index],
-                    band=band,
-                    band_selection_mode=band_selection_mode,
-                )
-                selected[index] = state
-        else:
-            for index in range(kx_flat.size):
-                _, _, state = provider.select_floquet_state(
-                    kx_flat[index],
-                    ky_flat[index],
-                    band=band,
-                    band_selection_mode=band_selection_mode,
-                )
-                selected[index] = state
+        selected = provider.select_floquet_states_on_grid(
+            kx_grid.ravel(),
+            ky_grid.ravel(),
+            band=band,
+            band_selection_mode=band_selection_mode,
+        )
 
         selected = selected.reshape(grid_shape + (n_states,))
         return self.compute_floquet_velocity_map_from_states(
@@ -497,6 +438,83 @@ class FloquetVelocityCalculator:
             include_charge,
             velocity_operator_fn=self.analytic_velocity_operator,
         )
+
+    def compute_adiabatic_velocity_map(
+        self,
+        time,
+        kx_grid,
+        ky_grid,
+        band="conduction",
+        dk: float = 1e5,
+        include_charge: bool = False,
+    ):
+        """Batched adiabatic-velocity map over a k-grid and time grid.
+
+        Vectorized counterpart of :meth:`compute_adiabatic_velocity` evaluated
+        over a whole grid: the instantaneous Hamiltonian is diagonalized at
+        every ``(k, t)`` in one batched ``eigh``, the band-resolved eigenstate
+        is selected, and the velocity expectation is evaluated in batch. Falls
+        back to the per-point routine for non-batchable models.
+
+        Args:
+            time: 1D time grid.
+            kx_grid, ky_grid: Momentum grids of identical shape ``G``.
+            band: Target band label or integer index.
+            dk: Momentum step for the velocity-operator derivative.
+            include_charge: Multiply by the charge to return a current.
+
+        Returns:
+            ``(jx_map, jy_map)``, each of shape ``G + (n_time,)``.
+        """
+        kx_grid = np.asarray(kx_grid, dtype=float)
+        ky_grid = np.asarray(ky_grid, dtype=float)
+        grid_shape = kx_grid.shape
+        time = np.atleast_1d(np.asarray(time, dtype=float))
+        kx_flat = kx_grid.ravel()
+        ky_flat = ky_grid.ravel()
+        out_shape = grid_shape + (time.size,)
+
+        if not self.supports_vectorized_time:
+            local_jx = np.zeros((kx_flat.size, time.size), dtype=float)
+            local_jy = np.zeros((kx_flat.size, time.size), dtype=float)
+            for index in range(kx_flat.size):
+                jx_t, jy_t = zip(
+                    *[
+                        self.compute_adiabatic_velocity(
+                            t,
+                            kx_flat[index],
+                            ky_flat[index],
+                            band=band,
+                            dk=dk,
+                            include_charge=include_charge,
+                        )
+                        for t in time
+                    ]
+                )
+                local_jx[index] = np.asarray(jx_t)
+                local_jy[index] = np.asarray(jy_t)
+            return local_jx.reshape(out_shape), local_jy.reshape(out_shape)
+
+        kx_b = kx_flat[:, None]
+        ky_b = ky_flat[:, None]
+        t_b = time[None, :]
+        # Instantaneous eigenstates at every (k, t): (n_k, n_time, dim, dim).
+        h_inst = np.asarray(self.Ht(t_b, kx_b, ky_b), dtype=complex)
+        eigvals, eigvecs = np.linalg.eigh(h_inst)
+        band_index = self.state_provider.resolve_band_index(
+            eigvals.reshape(-1, eigvals.shape[-1])[0], band
+        )
+        states = eigvecs[..., band_index]  # (n_k, n_time, dim)
+
+        velocity_x, velocity_y = self._velocity_operators_batched(
+            time, kx_flat, ky_flat, dk
+        )
+        current_x = self._expectation(states, velocity_x)
+        current_y = self._expectation(states, velocity_y)
+
+        jx_map = self._finalize_velocity(current_x, include_charge)
+        jy_map = self._finalize_velocity(current_y, include_charge)
+        return jx_map.reshape(out_shape), jy_map.reshape(out_shape)
 
     def compute_hfe_velocity(
         self,

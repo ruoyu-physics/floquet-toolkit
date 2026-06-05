@@ -30,7 +30,7 @@ For *why* particular optimizations were made (and their timings), see
         │
         ▼
    numerical primitives     builders/  +  utils/     FloquetBuilder · HFEBuilder ·
-   (matrices, k-grids)                               kspace · drive_fields · geometry
+   (matrices, k-grids)                               kquadrature · drive_fields · geometry
 ```
 
 Dependencies point **downward only**: a calculator may use providers and
@@ -75,9 +75,9 @@ This is the API surface. You normally start here.
   — quantities *at* a momentum: velocities, curvatures, spectra, state
   selection. Owns its own `FloquetStateProvider` and the calculators.
 - [`FloquetTransportManager`](../floquet_toolkit/managers/floquet_transport_manager.py)
-  — quantities *integrated over* k-space: Floquet/adiabatic currents on a Fermi
-  disk, Berry curvature integrals. Owns the cache (`use_cache`) shared across
-  its calculators.
+  — quantities *integrated over* k-space: Floquet/adiabatic currents over an
+  explicit `KQuadrature`, adaptive current integrals, and Berry curvature
+  integrals. Owns the cache (`use_cache`) shared across its calculators.
 - [`FloquetManager`](../floquet_toolkit/managers/floquet_manager.py) — a thin
   compatibility wrapper exposing `.local` and `.transport`, delegating unknown
   attributes to whichever sub-manager defines them.
@@ -94,9 +94,10 @@ One class per family of observable. Each is constructed from a
   routes and the **batched velocity maps** live here (see the data-flow example
   below).
 - [`FloquetCurrentCalculator`](../floquet_toolkit/calculators/floquet_current_calculator.py)
-  — integrates a *local velocity map* over a circular momentum region. It
-  generates the k-grid, asks the velocity calculator for the map, then applies
-  the integration rule. It does not compute velocities itself.
+  — integrates a *local velocity map* over a supplied `KQuadrature`. The
+  quadrature owns the sample points and weights; the current calculator asks the
+  velocity calculator for a map on those points and contracts it with the
+  weights. Adaptive Cartesian refinement is a separate data-dependent path.
 - `FloquetCurvatureCalculator`, `FloquetBerryPhaseCalculator`,
   `FloquetSpectrumCalculator`, `FloquetPerturbationCalculator` — the analogous
   algorithms for Berry curvature, Berry phases, quasienergy spectra, and
@@ -131,9 +132,10 @@ The trickiest part of the codebase, deliberately split by responsibility:
   effective Hamiltonians, consuming a `FloquetBuilder`.
 
 ### `utils/` — leaf helpers (no package dependencies)
-`kspace` (grid creation + Cartesian/polar integration rules), `drive_fields`
-(vector-potential / E-field components), `geometry` (signed loop area),
-`parallel` (worker-count resolution + `parallel_map`).
+`kquadrature` (`KQuadrature` plus Cartesian/polar grid and integration helpers),
+`drive_fields` (vector-potential / E-field components), `geometry` (signed loop
+area), `parallel` (worker-count resolution, `parallel_map`, and
+`parallel_chunk_map`).
 
 ---
 
@@ -141,18 +143,20 @@ The trickiest part of the codebase, deliberately split by responsibility:
 
 This is the path the recent batching work reshaped, and it shows the layering in
 action. Calling
-`transport.integrate_floquet_current_on_fermi_disk(..., state_selection_algorithm="pointwise", grid_type="cartesian")`:
+`transport.integrate_current(KQuadrature.cartesian(...), kind="floquet", state_selection_algorithm="pointwise")`:
 
-1. **Manager** forwards to `FloquetCurrentCalculator`.
-2. **Current calculator** builds the k-grid with `_build_integration_grid`: a
-   regular Cartesian grid over the square enclosing the disk, plus a boolean
-   `mask` (from `utils/kspace.create_circular_mask`) marking which points fall
-   inside the radius.
-3. It hands the full grid to the **velocity calculator's**
+1. **Caller** builds a `KQuadrature.cartesian(...)`: a regular Cartesian grid
+   over the square enclosing the disk, plus per-point weights. Points outside
+   the disk have weight zero, so the disk mask is already folded into the
+   integration measure.
+2. **Manager** forwards the quadrature to `FloquetCurrentCalculator`.
+3. **Current calculator** hands the quadrature's `kx_grid`/`ky_grid` to the
+   **velocity calculator's**
    `compute_floquet_velocity_map`, which selects and evaluates in batch:
    - **Selection (per point, independent).** When the model is batchable, it
      diagonalizes the Floquet Hamiltonian at every momentum in one call
-     (`provider.diagonalize_floquet_hamiltonian_batched`), then for each point
+     (`provider.select_floquet_states_on_grid`, backed by
+     `diagonalize_floquet_hamiltonian_batched`), then for each point
      picks the eigenstate with maximal overlap onto the target static band
      (`provider.select_floquet_state_from_eigensystem`). No tracker — each
      momentum is decided on its own.
@@ -161,34 +165,35 @@ action. Calling
      every $\psi(k, t)$, builds the velocity operators $(v_x, v_y)$ over the
      whole $(k, t)$ grid, and evaluates $\langle\psi|v|\psi\rangle$.
 4. The current calculator integrates the resulting `(n_kx, n_ky, n_time)` maps
-   with `_integrate_current_map` → `utils.integrate_cartesian_grid`, which
-   applies the **mask** (out-of-disk points contribute zero) and the uniform
-   area weight. The map is computed on every grid point; the mask — not a
-   pre-filter — is what restricts the integral to the disk.
+   with `quadrature.integrate(...)`, a weighted sum over the grid axes. The map
+   is computed on every grid point; the zero weights restrict the integral to
+   the disk.
 
 ```
-integrate_floquet_current_on_fermi_disk(pointwise, cartesian)   (manager → current calc)
-  ├─ _build_integration_grid                     (kx_grid, ky_grid, mask)
+KQuadrature.cartesian(...)                                      (caller)
+  └─ kx_grid, ky_grid, weights
+integrate_current(pointwise, floquet)                           (manager → current calc)
   └─ velocity.compute_floquet_velocity_map
-        ├─ provider.diagonalize_floquet_hamiltonian_batched      ← batched
-        ├─ provider.select_floquet_state_from_eigensystem (×k)   ← per point, independent
+        ├─ provider.select_floquet_states_on_grid
+        │     ├─ provider.diagonalize_floquet_hamiltonian_batched  ← batched
+        │     └─ provider.select_floquet_state_from_eigensystem (×k)
         └─ compute_floquet_velocity_map_from_states              ← batched
               reconstruct ψ(k,t) · build (v_x,v_y) · ⟨ψ|v|ψ⟩
-  └─ _integrate_current_map                       (→ utils.integrate_cartesian_grid, masked)
+  └─ quadrature.integrate(jx_map), quadrature.integrate(jy_map)
 ```
 
 Other paths differ only in how the *grid* and *selection* are produced, then
 reuse the same evaluator and integrator:
-- **`grid_type="polar"`** swaps the grid + integration rule (polar Jacobian,
-  no mask) but keeps the same selection and velocity-map calls.
+- **`KQuadrature.polar(...)`** swaps the sample points and weights (including
+  the polar Jacobian) but keeps the same selection and velocity-map calls.
 - **`state_selection_algorithm="tracked"`** replaces the independent per-point
   selection with `FloquetStateTracker`, which propagates one branch across the
   grid via BFS from a seed (inherently *sequential*), then feeds its state grid
   straight into `compute_floquet_velocity_map_from_states`.
-- **`grid_type="adaptive_cartesian"`** stays on a per-point path (it refines the
-  grid on the fly, so there is no fixed grid to batch).
-- The **adiabatic** current reuses the generic per-point
-  `_integrate_local_current` because its local quantity isn't a Floquet velocity.
+- **`integrate_adaptive_current(...)`** stays on a per-point path (it refines
+  the grid on the fly, so there is no fixed quadrature to batch).
+- The **adiabatic** current uses `compute_adiabatic_velocity_map` for fixed
+  quadratures and the per-point instantaneous velocity for adaptive refinement.
 
 The key design line: **the velocity calculator produces a local map; the current
 calculator only integrates it.** Selection ("which state") is kept separate from
