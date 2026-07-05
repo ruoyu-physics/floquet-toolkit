@@ -29,6 +29,11 @@ class FloquetStateTracker:
             candidate_states_t0.conj().T @ reference_state_t0
         ) ** 2
 
+        if continuity_overlaps.size == 0:
+            raise ValueError(
+                "No candidate Floquet states to select from; the candidate set "
+                "is empty."
+            )
         if continuity_overlaps.size == 1:
             return 0
 

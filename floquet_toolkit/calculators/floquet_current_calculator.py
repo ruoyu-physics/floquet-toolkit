@@ -240,7 +240,7 @@ class FloquetCurrentCalculator:
         band="conduction",
         include_charge: bool = False,
         band_selection_mode: str = "overlap",
-        state_selection_algorithm: str = "tracked",
+        state_selection_algorithm: str = "pointwise",
     ):
         """Integrate a local current over an explicit k-space quadrature.
 

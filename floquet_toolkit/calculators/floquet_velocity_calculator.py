@@ -54,9 +54,20 @@ class FloquetVelocityCalculator:
         )
 
     def _resolve_band_state(self, eigvals, eigvecs, band):
-        """Return the eigenvector associated with a band label or index."""
-        band_index = self.state_provider.resolve_band_index(eigvals, band)
-        return eigvecs[:, band_index]
+        """Return the eigenvector associated with a band label or index.
+
+        Handles both a single ``(D, D)`` eigensystem and batched ``(..., D, D)``
+        ones: the band index is resolved against the last eigenvalue axis
+        (``eigh`` sorts ascending per system, so a label maps to the same
+        column everywhere) and the eigenvector column is selected with a
+        last-axis index. A plain ``eigvecs[:, band_index]`` would silently pick
+        a matrix *row* (one component of every eigenvector) for batched input.
+        """
+        eigvals = np.asarray(eigvals)
+        band_index = self.state_provider.resolve_band_index(
+            eigvals.reshape(-1, eigvals.shape[-1])[0], band
+        )
+        return eigvecs[..., band_index]
 
     @staticmethod
     def _expectation(states, operator):
@@ -555,33 +566,3 @@ class FloquetVelocityCalculator:
             dk,
             include_charge,
         )
-
-    def compute_velocity_from_quasi_energy_spectrum(
-        self,
-        kx,
-        ky,
-        band="conduction",
-        dk: float = 1e5,
-        include_charge: bool = False,
-    ):
-        """Compute velocity from the quasi-energy spectrum slope."""
-        def quasi_energy_state(kx, ky, band="conduction"):
-            all_quasi_energies, all_floquet_states = self.state_provider.diagonalize_floquet_hamiltonian(kx, ky)
-            state_index = self.state_provider.resolve_band_index(all_quasi_energies, band)
-            return all_quasi_energies[state_index]
-        
-        energy1 = quasi_energy_state(kx - dk/2, ky, band=band)
-        energy2 = quasi_energy_state(kx, ky, band=band)
-        energy3 = quasi_energy_state(kx + dk/2, ky, band=band)
-        velocity_x = np.gradient([energy1, energy2, energy3], dk)/self.hbar
-
-        energy1 = quasi_energy_state(kx, ky - dk/2, band=band)
-        energy2 = quasi_energy_state(kx, ky, band=band)
-        energy3 = quasi_energy_state(kx, ky + dk/2, band=band)
-        velocity_y = np.gradient([energy1, energy2, energy3], dk)/self.hbar
-        if include_charge:
-            return self.e_charge * velocity_x[1], self.e_charge * velocity_y[1]
-        return velocity_x[1], velocity_y[1]
-
-
-        

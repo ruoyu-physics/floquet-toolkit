@@ -93,6 +93,56 @@ def create_polar_k_grid(
     return r_values, theta_values, r_grid, theta_grid, kx_grid, ky_grid
 
 
+def create_parallelogram_k_grid(
+    b1,
+    b2,
+    num_1: int,
+    num_2: int,
+    center: bool = True,
+    indexing: str = "ij",
+):
+    """Create a uniform grid over the parallelogram spanned by two vectors.
+
+    Samples cell-centered fractional coordinates ``s = (n + 0.5) / N`` for
+    ``n = 0..N-1`` along each direction and maps them to Cartesian momenta
+    ``k = s1 * b1 + s2 * b2``. With ``b1, b2`` the reciprocal-lattice vectors
+    this tiles the primitive (parallelogram) Brillouin zone exactly once; the
+    cell-centered offset keeps samples off the periodic boundary, so the grid
+    doubles as an integration mesh with equal per-point weight
+    ``|det[b1, b2]| / (num_1 * num_2)`` (see :meth:`KQuadrature.parallelogram`).
+
+    Args:
+        b1, b2: Spanning vectors (e.g. reciprocal-lattice vectors) as length-2
+            array-likes.
+        num_1, num_2: Number of samples along ``b1`` and ``b2``.
+        center: If ``True`` (default) fractional coordinates run over
+            ``[-0.5, 0.5)`` so the cell is centered on the origin; if ``False``,
+            over ``[0, 1)``.
+        indexing: ``numpy.meshgrid`` indexing. The default ``"ij"`` makes the
+            grid axes follow ``(s1, s2)`` ordering.
+
+    Returns:
+        Tuple ``(s1_values, s2_values, kx_grid, ky_grid)``: the 1D fractional
+        coordinates along each direction and the Cartesian momentum grids, each
+        of shape ``(num_1, num_2)`` for ``"ij"`` indexing.
+    """
+    if num_1 < 1 or num_2 < 1:
+        raise ValueError("num_1 and num_2 must both be at least 1.")
+    b1 = np.asarray(b1, dtype=float).reshape(2)
+    b2 = np.asarray(b2, dtype=float).reshape(2)
+
+    s1_values = (np.arange(num_1) + 0.5) / num_1
+    s2_values = (np.arange(num_2) + 0.5) / num_2
+    if center:
+        s1_values = s1_values - 0.5
+        s2_values = s2_values - 0.5
+
+    s1_grid, s2_grid = np.meshgrid(s1_values, s2_values, indexing=indexing)
+    kx_grid = s1_grid * b1[0] + s2_grid * b2[0]
+    ky_grid = s1_grid * b1[1] + s2_grid * b2[1]
+    return s1_values, s2_values, kx_grid, ky_grid
+
+
 def create_circular_mask(
     kx_grid,
     ky_grid,
@@ -189,7 +239,9 @@ def integrate_polar_grid(
     if mode == "trapezoidal":
         angular_integral = np.sum(values, axis=-1) * dtheta
         if r_values.size == 1:
-            return np.squeeze(angular_integral * r_values[0], axis=-1) * 0.0
+            # A single radial sample spans a zero-width radial domain, so the
+            # trapezoidal integral is identically zero (shape: leading axes).
+            return angular_integral[..., 0] * 0.0
         radial_integrand = angular_integral * r_values
         if hasattr(np, "trapezoid"):
             return np.trapezoid(radial_integrand, x=r_values, axis=-1)
@@ -271,6 +323,90 @@ class KQuadrature:
         axes = list(range(grid_ndim))
         return np.tensordot(self.weights, value_map, axes=(axes, axes))
 
+    def plot(
+        self,
+        ax=None,
+        *,
+        marker_size: float = 4.0,
+        show_excluded: bool = True,
+        size_by_weight: bool = False,
+        **plot_kwargs,
+    ):
+        """Scatter the quadrature sample points in black and white.
+
+        Renders the grid as a monochrome point cloud (no color): sample points
+        that carry integration weight are filled black markers, and -- unless
+        ``show_excluded`` is ``False`` -- any zero-weight points (e.g. the
+        out-of-disk corners of a :meth:`cartesian` grid) are hollow markers, so
+        the integration support is visible. Works for any grid shape: the
+        ``kx_grid``/``ky_grid``/``weights`` arrays are flattened first.
+
+        Plotting requires ``matplotlib`` (the package's optional ``plots``
+        extra); it is imported lazily so the rest of the module stays
+        NumPy-only.
+
+        Args:
+            ax: Existing Matplotlib axes to draw on. A new square figure/axes is
+                created when ``None``.
+            marker_size: Base marker size (points). With ``size_by_weight`` it is
+                the size of the largest-weight point.
+            show_excluded: Draw zero-weight points as hollow markers.
+            size_by_weight: Scale filled-marker areas by their weight, giving a
+                visual sense of the local integration measure.
+            **plot_kwargs: Forwarded to the underlying scatter call (e.g.
+                ``marker``); color-like keys are ignored to keep the plot
+                monochrome.
+
+        Returns:
+            The Matplotlib axes the grid was drawn on.
+        """
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError as exc:  # pragma: no cover - exercised only without mpl
+            raise ImportError(
+                "KQuadrature.plot requires matplotlib; install the optional "
+                "'plots' extra, e.g. `pip install floquet-toolkit[plots]`."
+            ) from exc
+
+        kx = np.asarray(self.kx_grid, dtype=float).ravel()
+        ky = np.asarray(self.ky_grid, dtype=float).ravel()
+        weights = np.asarray(self.weights, dtype=float).ravel()
+
+        # Drop any caller-supplied color so the plot stays black and white.
+        for key in ("color", "c", "facecolor", "facecolors", "edgecolor",
+                    "edgecolors", "cmap"):
+            plot_kwargs.pop(key, None)
+        marker = plot_kwargs.pop("marker", "o")
+
+        if ax is None:
+            _, ax = plt.subplots(figsize=(6.0, 6.0))
+
+        support = weights != 0.0
+        if size_by_weight and support.any():
+            wmax = np.abs(weights[support]).max()
+            sizes = marker_size**2 * np.abs(weights[support]) / wmax
+        else:
+            sizes = marker_size**2
+
+        ax.scatter(
+            kx[support], ky[support],
+            s=sizes, marker=marker,
+            facecolors="black", edgecolors="black", linewidths=0.0,
+            **plot_kwargs,
+        )
+        if show_excluded and (~support).any():
+            ax.scatter(
+                kx[~support], ky[~support],
+                s=marker_size**2, marker=marker,
+                facecolors="none", edgecolors="black", linewidths=0.5,
+                **plot_kwargs,
+            )
+
+        ax.set_aspect("equal")
+        ax.set_xlabel(r"$k_x$")
+        ax.set_ylabel(r"$k_y$")
+        return ax
+
     @classmethod
     def cartesian(
         cls,
@@ -325,4 +461,35 @@ class KQuadrature:
         radial_weight = _radial_quadrature_weights(r_values, mode)
         radial_measure = (radial_weight * r_values * dtheta)[:, None]
         weights = np.broadcast_to(radial_measure, kx_grid.shape).copy()
+        return cls(kx_grid=kx_grid, ky_grid=ky_grid, weights=weights)
+
+    @classmethod
+    def parallelogram(
+        cls,
+        b1,
+        b2,
+        num_1: int = 21,
+        num_2: int = 21,
+        center: bool = True,
+    ) -> "KQuadrature":
+        """Build a uniform quadrature over the parallelogram spanned by ``b1, b2``.
+
+        Wraps :func:`create_parallelogram_k_grid`: every sample sits at the
+        center of one of ``num_1 x num_2`` equal sub-cells that tile the
+        parallelogram (e.g. a primitive Brillouin zone), so each carries the
+        same area weight ``|det[b1, b2]| / (num_1 * num_2)`` and
+        :meth:`integrate` reduces to the full-zone integral ``sum(weights * value)``.
+
+        Args:
+            b1, b2: Spanning (reciprocal-lattice) vectors as length-2 array-likes.
+            num_1, num_2: Number of samples along ``b1`` and ``b2``.
+            center: Whether to center the parallelogram on the origin (``Gamma``).
+        """
+        b1 = np.asarray(b1, dtype=float).reshape(2)
+        b2 = np.asarray(b2, dtype=float).reshape(2)
+        _, _, kx_grid, ky_grid = create_parallelogram_k_grid(
+            b1, b2, num_1=num_1, num_2=num_2, center=center
+        )
+        cell_area = abs(b1[0] * b2[1] - b1[1] * b2[0]) / (num_1 * num_2)
+        weights = np.full(kx_grid.shape, cell_area, dtype=float)
         return cls(kx_grid=kx_grid, ky_grid=ky_grid, weights=weights)

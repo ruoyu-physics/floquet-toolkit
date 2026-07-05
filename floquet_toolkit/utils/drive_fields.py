@@ -33,8 +33,11 @@ def _normalized_polarization_axis_cached(key) -> tuple[float, float]:
             raise ValueError("polarization_axis must be 'x', 'y', or a length-2 vector")
 
     norm = np.linalg.norm(axis)
-    if norm == 0.0:
-        raise ValueError("polarization_axis must be nonzero")
+    # Tolerance rather than exact == 0: the axis only encodes a direction, so a
+    # negligible or non-finite length means the direction is ill-defined and
+    # normalizing it would amplify noise / produce NaN.
+    if not np.isfinite(norm) or norm < 1.0e-12:
+        raise ValueError("polarization_axis must be a finite, non-negligible vector")
     normalized = axis / norm
     return float(normalized[0]), float(normalized[1])
 

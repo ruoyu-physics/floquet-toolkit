@@ -660,10 +660,11 @@ class FloquetBerryPhaseCalculator:
             band=band,
         )
 
-        state_k_cache = [
-            self.state_provider.reconstruct_floquet_state(state, time=time)
-            for state in tracked_states
-        ]
+        # One vectorized reconstruction over all loop points (identical per-point
+        # results to calling reconstruct_floquet_state in a loop).
+        state_k_cache = self.state_provider.reconstruct_floquet_states_batched(
+            np.asarray(tracked_states), time=time
+        )
 
         berry_phase = 1 + 0j
         for i in range(n_points):

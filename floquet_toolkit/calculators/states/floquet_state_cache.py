@@ -86,12 +86,17 @@ class FloquetStateCache:
             return (self._round_float(time.item()),)
         return tuple(self._round_float(t) for t in time.tolist())
 
-    def _grid_axis_key(self, values) -> tuple[float, ...]:
-        """Return a normalized 1D key for one k-axis."""
-        values = np.asarray(values, dtype=float)
-        if values.ndim != 1:
-            raise ValueError("Grid axes used as cache keys must be 1D arrays.")
-        return tuple(self._round_float(v) for v in values.tolist())
+    def _grid_values_key(self, grid) -> tuple:
+        """Return a normalized key for one full 2D momentum grid.
+
+        Keys the shape plus every rounded grid value -- not just the first
+        row/column -- so non-separable (polar/curvilinear) grids cannot collide
+        with a different grid that happens to share an axis.
+        """
+        grid = np.asarray(grid, dtype=float)
+        return grid.shape + tuple(
+            self._round_float(v) for v in grid.ravel().tolist()
+        )
 
     def _grid_key(
         self,
@@ -100,7 +105,7 @@ class FloquetStateCache:
         band="conduction",
         seed_indices=None,
         init_mode: str = "overlap",
-    ) -> tuple[tuple[float, ...], tuple[float, ...], str, Any, str]:
+    ) -> tuple[tuple, tuple, str, Any, str]:
         """Return one normalized key for a 2D grid-tracking request."""
         kx_grid = np.asarray(kx_grid, dtype=float)
         ky_grid = np.asarray(ky_grid, dtype=float)
@@ -110,8 +115,8 @@ class FloquetStateCache:
             raise ValueError("kx_grid and ky_grid must be 2D arrays.")
 
         return (
-            self._grid_axis_key(kx_grid[:, 0]),
-            self._grid_axis_key(ky_grid[0, :]),
+            self._grid_values_key(kx_grid),
+            self._grid_values_key(ky_grid),
             self._band_key(band),
             self._seed_key(seed_indices),
             init_mode,

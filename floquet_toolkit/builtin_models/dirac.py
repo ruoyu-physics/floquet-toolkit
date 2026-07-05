@@ -81,7 +81,9 @@ class DiracModel(BuiltinDrivenModelSpec):
         denominator = (
             (self.hbar * self.vf) ** 2 * (kx**2 + ky**2) + self.mass**2
         ) ** (3 / 2)
-        if denominator == 0.0:
+        # `not (x > 0)` also catches NaN and an underflowed-to-zero denominator,
+        # unlike an exact `== 0.0` comparison.
+        if not denominator > 0.0:
             raise ValueError("Berry curvature is undefined at the gapless Dirac point.")
         if band in ("conduction", 1):
             return -prefactor / denominator

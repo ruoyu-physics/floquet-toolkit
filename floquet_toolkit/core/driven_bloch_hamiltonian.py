@@ -64,7 +64,18 @@ class DrivenBlochHamiltonian:
         self.supports_vectorized_time = supports_vectorized_time
         self._static_cache = {}
 
-        sample_full = np.asarray(H_t(t=0, kx=0, ky=0), dtype=complex)
+        # Validate with the calling convention the solvers actually use: a
+        # positional time argument plus keyword-addressed momenta (the builders
+        # bind ``partial(H_t, kx=..., ky=...)``). So ``def H(time, kx, ky)`` is
+        # accepted, while momenta named anything but ``kx``/``ky`` fail here
+        # rather than deep inside a solver.
+        try:
+            sample_full = np.asarray(H_t(0.0, kx=0.0, ky=0.0), dtype=complex)
+        except TypeError as exc:
+            raise TypeError(
+                "H_t must be callable as H_t(t, kx=..., ky=...): a positional "
+                "time argument plus momenta keyword-addressable as 'kx' and 'ky'."
+            ) from exc
         if sample_full.shape[0] != sample_full.shape[1]:
             raise ValueError("Hamiltonian must be square")
         if not np.allclose(sample_full, sample_full.conj().T):
@@ -74,10 +85,17 @@ class DrivenBlochHamiltonian:
 
         # Validate H_static if provided, otherwise set up for numerical time averaging.
         if H_static is None:
-            sample_static = self._compute_static_average(kx=0, ky=0)
+            sample_static = self._compute_static_average(0.0, 0.0)
             self.H_static = self._compute_static_average
         else:
-            sample_static = np.asarray(H_static(kx=0, ky=0), dtype=complex)
+            # The calculators call H_static positionally: H_static(kx, ky).
+            try:
+                sample_static = np.asarray(H_static(0.0, 0.0), dtype=complex)
+            except TypeError as exc:
+                raise TypeError(
+                    "H_static must be callable as H_static(kx, ky) with two "
+                    "positional momentum arguments."
+                ) from exc
             if sample_static.shape != sample_full.shape:
                 raise ValueError("H_static and H_t must have the same shape")
             if not np.allclose(sample_static, sample_static.conj().T):
@@ -88,8 +106,25 @@ class DrivenBlochHamiltonian:
             raise ValueError("H_static must return a Hermitian matrix")
 
     def _compute_static_average(self, kx, ky):
-        """Return the numerical time average of ``H_t``."""
-        cache_key = (kx, ky)
+        """Return the numerical time average of ``H_t``.
+
+        Scalar momenta are cached per ``(kx, ky)``. Array momenta are broadcast
+        against each other, evaluated point by point, and stacked to shape
+        ``broadcast(kx, ky) + (dim, dim)`` -- so the synthesized ``H_static``
+        honors the momentum-broadcast contract of the batched solver paths
+        without assuming the user's ``H_t`` itself broadcasts over momentum.
+        """
+        kx_arr = np.asarray(kx, dtype=float)
+        ky_arr = np.asarray(ky, dtype=float)
+        if kx_arr.ndim > 0 or ky_arr.ndim > 0:
+            kx_b, ky_b = np.broadcast_arrays(kx_arr, ky_arr)
+            stacked = np.array([
+                self._compute_static_average(float(one_kx), float(one_ky))
+                for one_kx, one_ky in zip(kx_b.ravel(), ky_b.ravel())
+            ])
+            return stacked.reshape(kx_b.shape + stacked.shape[-2:])
+
+        cache_key = (float(kx_arr), float(ky_arr))
         if cache_key in self._static_cache:
             return self._static_cache[cache_key]
 

@@ -25,6 +25,8 @@ floquet-toolkit/
     core/
     config.py
     managers/
+  docs/
+  benchmarks/
   tests/
   examples/
   pyproject.toml
@@ -62,9 +64,10 @@ Dependency groups:
 
 `FloquetLocalManager` handles local-in-momentum observables such as spectra,
 Floquet states, Berry curvature, and velocities. `FloquetTransportManager`
-collects loop/integrated transport-style observables such as Berry phases.
-`FloquetManager` remains available as a lightweight compatibility wrapper that
-exposes `.local` and `.transport`.
+collects loop/integrated transport-style observables such as Berry phases,
+Berry-curvature integrals, and current integrals over explicit k-space
+quadratures. `FloquetManager` remains available as a lightweight compatibility
+wrapper that exposes `.local` and `.transport`.
 
 Useful methods are grouped roughly as follows:
 
@@ -83,6 +86,14 @@ Useful methods are grouped roughly as follows:
   - `compute_static_velocity`
   - `compute_adiabatic_velocity`
 
+- Integrated observables
+  - `integrate_current`
+  - `integrate_adaptive_current`
+  - `integrate_berry_curvature_on_grid`
+
+`KQuadrature` is the standard way to describe fixed k-space integration grids
+for current calculations. Build one with `KQuadrature.cartesian(...)` or
+`KQuadrature.polar(...)`, then pass it to `FloquetTransportManager.integrate_current(...)`.
 Additional helper methods are also available for perturbative and high-frequency calculations, but the methods above are the most common starting points for users of the package.
 
 ### Built-in Models
@@ -104,6 +115,7 @@ Users are not limited to the built-in models. You can define your own time-perio
 ### Configuration Dataclasses
 
 Shared configuration lives in `floquet_toolkit.config`:
+- `UnitConvention`
 - `DriveParameters`
 - `FloquetParameters`
 
@@ -118,12 +130,14 @@ The `examples/` folder contains lightweight plotting examples for the built-in m
 - `examples/plot_spectra.py` and `examples/plot_spectra.ipynb` for Dirac and graphene Floquet spectrum visualizations
 - `examples/plot_dirac_curvature_vs_amplitude.py` and `examples/plot_dirac_curvature_vs_amplitude.ipynb` for scanning the time-averaged Dirac-model curvature at `k=(0,0)` versus circular-drive amplitude
 
+Performance notes live in `docs/PERFORMANCE.md`, with runnable benchmark and profiling harnesses in `benchmarks/`.
+
 ## Running Tests
 
 Run the current test suite with:
 
 ```bash
-pytest -q tests/test_floquet_builder.py tests/test_curvature_convergence.py
+python3 -m pytest -q
 ```
 
 The current tests cover:
@@ -131,13 +145,13 @@ The current tests cover:
 - matrix-size and eigensystem consistency
 - `dk` convergence for instantaneous Berry curvature
 - `dk` convergence for numerically computed static Berry curvature
+- built-in model class construction and manager/cache behavior
+- polar integration and `KQuadrature` current-integration behavior
 
 
 ## Quick Start
 
 ```python
-import numpy as np
-
 from floquet_toolkit import DiracModel, FloquetLocalManager, UnitConvention
 from floquet_toolkit.builtin_models import DiracParameters
 from floquet_toolkit.config import (
@@ -169,7 +183,7 @@ floquet_params = FloquetParameters(
 model = DiracModel(dirac_params, drive_params).to_driven_hamiltonian()
 manager = FloquetLocalManager(model, floquet_params)
 
-time = np.linspace(0.0, drive_params.period, floquet_params.n_time, endpoint=False)
+time = floquet_params.time_grid(model.period)
 curvature = manager.compute_instantaneous_berry_curvature(
     time=time,
     kx=0.0,
