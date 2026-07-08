@@ -9,6 +9,7 @@ pipeline. Use these to decide **where** to optimize before changing code
 | Path | Purpose | Tracked in git? |
 | --- | --- | --- |
 | `profile_current.py` | Profile one Floquet current calculation; reports the heaviest functions and an eigh-vs-construction breakdown. | yes |
+| `bench_curvature_vs_hfe.py` | Accuracy check (not timing): cross-validates a hand-derived closed-form order-1 HFE formula against `HFEBuilder`'s numerical construction and the exact time-averaged Floquet result, for a high-frequency-driven massless Dirac model. | yes |
 | `results/` | Generated artifacts (`.prof` dumps, timing logs). | no — git-ignored |
 
 Curated findings and the optimization history live in

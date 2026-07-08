@@ -25,7 +25,7 @@ def resolve_worker_count(n_jobs: int, n_items: int) -> int:
     item) forces serial execution.
     """
     if n_jobs < 0:
-        n_jobs = os.cpu_count() or 1
+        n_jobs = os.cpu_count()-1 or 1
     return max(1, min(n_jobs, n_items))
 
 
@@ -73,7 +73,7 @@ def _contiguous_chunks(n_items: int, n_chunks: int) -> list:
     return ranges
 
 
-def parallel_chunk_map(func, items, n_jobs: int = -1) -> list:
+def parallel_chunk_map(func, items, n_jobs: int = -1, chunk_size: int | None = None) -> list:
     """Map ``func`` over contiguous CHUNKS of ``items`` across processes.
 
     Unlike :func:`parallel_map` (one call per item), each worker receives a
@@ -89,16 +89,33 @@ def parallel_chunk_map(func, items, n_jobs: int = -1) -> list:
     multi-amplitude sweep, parallelize amplitudes with :func:`parallel_map`
     instead; do not nest the two.)
 
+    By default (``chunk_size=None``) the number of chunks equals the number of
+    workers, exactly as before — one chunk's worth of memory per core, so peak
+    memory still scales with core count. Pass ``chunk_size`` to decouple the
+    two: each chunk then holds at most ``chunk_size`` items regardless of
+    ``n_jobs``, so growing ``n_jobs`` only grows how many chunks run
+    concurrently, not how much memory a single chunk's batched call needs. Cap
+    ``n_jobs`` to bound total memory as ``n_jobs * (memory for one chunk)``.
+
     Falls back to a single in-process ``func(items)`` call when only one worker
     or chunk is needed. ``func`` and the items must be picklable (define ``func``
     at module level).
     """
     items = list(items)
-    workers = resolve_worker_count(n_jobs, len(items))
-    if workers <= 1:
-        return list(func(items))
-    chunks = [items[start:stop] for start, stop in _contiguous_chunks(len(items), workers)]
-    with ProcessPoolExecutor(max_workers=len(chunks)) as executor:
+    if chunk_size is not None:
+        n_chunks = max(1, -(-len(items) // chunk_size))  # ceil division
+    else:
+        n_chunks = resolve_worker_count(n_jobs, len(items))
+    workers = resolve_worker_count(n_jobs, n_chunks)
+    chunks = [items[start:stop] for start, stop in _contiguous_chunks(len(items), n_chunks)]
+    if workers <= 1 or len(chunks) <= 1:
+        # Serial: still process chunk-by-chunk (not the whole list at once) so a
+        # ``chunk_size`` memory bound holds even without process parallelism.
+        flat = []
+        for chunk in chunks:
+            flat.extend(func(chunk))
+        return flat
+    with ProcessPoolExecutor(max_workers=workers) as executor:
         flat = []
         for chunk_result in executor.map(func, chunks):
             flat.extend(chunk_result)

@@ -61,7 +61,7 @@ OMEGA = 45.0 * MEV_TO_J / SI_UNITS.hbar
 N_K_POINTS = 41
 AMPLITUDE = 1.5e-9
 TOP_N = 15
-DUMP_PROFILE = False
+DUMP_PROFILE = True
 RESULTS_DIR = os.path.join(_REPO_ROOT, "benchmarks", "results")
 
 
