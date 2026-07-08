@@ -66,8 +66,8 @@ def _time_grid() -> np.ndarray:
 def _peak_map_batched(manager: FloquetLocalManager, time, kxs: np.ndarray, kys: np.ndarray) -> np.ndarray:
     """max_t |j(k,t)| over a k-grid via the vectorized velocity map."""
     jx_map, jy_map = manager.floquet_velocity_calculator.compute_floquet_velocity_map(
-        time, kxs, kys, band="conduction", include_charge=True
-    )
+        time, kxs, kys, bands=("conduction",), include_charge=True
+    )["conduction"]
     return np.max(np.hypot(jx_map, jy_map), axis=-1)
 
 

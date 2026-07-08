@@ -7,7 +7,7 @@ import numpy as np
 from ..config import FloquetParameters
 from ..core.driven_bloch_hamiltonian import DrivenBlochHamiltonian
 from ..utils.kquadrature import KQuadrature
-from .states import FloquetStateCache, FloquetStateTracker
+from .states import FloquetStateCache, FloquetStateTracker, normalize_bands
 from .floquet_velocity_calculator import FloquetVelocityCalculator
 
 
@@ -177,46 +177,53 @@ class FloquetCurrentCalculator:
         )
         return time, integrated_jx, integrated_jy
 
-    def _current_velocity_map(
+    def _current_velocity_maps(
         self,
         time,
         quadrature: KQuadrature,
         kind: str,
-        band,
+        bands,
         include_charge: bool,
         band_selection_mode: str,
         state_selection_algorithm: str,
     ):
-        """Build the ``(jx_map, jy_map)`` local-current map for ``kind``.
+        """Build ``{band: (jx_map, jy_map)}`` local-current maps for ``kind``.
 
-        The map is evaluated on the quadrature's sample points and shares its
+        Each map is evaluated on the quadrature's sample points and shares its
         grid shape, so it can be reduced directly with ``quadrature.integrate``.
+        The pointwise/adiabatic paths diagonalize once and select every band
+        from the shared eigensystem; the tracked path follows one band per
+        traversal and simply loops (returning a one-entry-per-band dict).
         """
+        bands = normalize_bands(bands)
         kx_grid = quadrature.kx_grid
         ky_grid = quadrature.ky_grid
         if kind == "floquet":
             if state_selection_algorithm == "tracked":
-                tracked = self.state_tracker.track_floquet_states_on_grid(
-                    kx_grid,
-                    ky_grid,
-                    band=band,
-                    init_mode=band_selection_mode,
-                )
-                return (
-                    self.velocity_calculator.compute_floquet_velocity_map_from_states(
-                        time,
+                result = {}
+                for band in bands:
+                    tracked = self.state_tracker.track_floquet_states_on_grid(
                         kx_grid,
                         ky_grid,
-                        tracked["floquet_states"],
-                        include_charge=include_charge,
+                        band=band,
+                        init_mode=band_selection_mode,
                     )
-                )
+                    result[band] = (
+                        self.velocity_calculator.compute_floquet_velocity_map_from_states(
+                            time,
+                            kx_grid,
+                            ky_grid,
+                            tracked["floquet_states"],
+                            include_charge=include_charge,
+                        )
+                    )
+                return result
             if state_selection_algorithm == "pointwise":
                 return self.velocity_calculator.compute_floquet_velocity_map(
                     time,
                     kx_grid,
                     ky_grid,
-                    band=band,
+                    bands=bands,
                     include_charge=include_charge,
                     band_selection_mode=band_selection_mode,
                 )
@@ -228,7 +235,7 @@ class FloquetCurrentCalculator:
                 time,
                 kx_grid,
                 ky_grid,
-                band=band,
+                bands=bands,
                 include_charge=include_charge,
             )
         raise ValueError("kind must be 'floquet' or 'adiabatic'.")
@@ -269,16 +276,71 @@ class FloquetCurrentCalculator:
             time grid.
         """
         time = self.floquet_params.time_grid(self.period)
-        jx_map, jy_map = self._current_velocity_map(
+        maps = self._current_velocity_maps(
             time,
             quadrature,
             kind,
-            band,
+            (band,),
             include_charge,
             band_selection_mode,
             state_selection_algorithm,
         )
+        jx_map, jy_map = maps[band]
         return time, quadrature.integrate(jx_map), quadrature.integrate(jy_map)
+
+    def integrate_occupied_current(
+        self,
+        quadrature: KQuadrature,
+        occupied,
+        kind: str = "floquet",
+        include_charge: bool = False,
+        band_selection_mode: str = "overlap",
+        state_selection_algorithm: str = "pointwise",
+        valence_band="valence",
+        conduction_band="conduction",
+    ):
+        """Integrate the total occupied-state current over a k-space quadrature.
+
+        The valence band is treated as filled everywhere and the conduction
+        band only where ``occupied`` is true, so the integrand is
+        ``v_valence + v_conduction * occupied`` -- the two-band, Fermi-surface
+        bounded current. Both bands are obtained from a single diagonalization
+        via :meth:`_current_velocity_maps`.
+
+        Args:
+            quadrature: Sample points and local integration measure (weights).
+            occupied: Boolean array matching the quadrature grid shape ``G``,
+                true where the conduction band is occupied (e.g.
+                ``E_conduction(k) < E_F``). Occupation policy (the Fermi level,
+                electron vs hole pockets) is the caller's responsibility.
+            kind: ``"floquet"`` or ``"adiabatic"`` (see :meth:`integrate_current`).
+            include_charge: Multiply the velocity by the charge to return a
+                charge current.
+            band_selection_mode: State-selection rule (``"floquet"`` only).
+            state_selection_algorithm: ``"tracked"`` or ``"pointwise"``
+                (``"floquet"`` only; ignored for ``"adiabatic"``).
+            valence_band, conduction_band: Band selectors for the two bands.
+
+        Returns:
+            Tuple ``(time, integrated_jx, integrated_jy)`` on the default Floquet
+            time grid.
+        """
+        time = self.floquet_params.time_grid(self.period)
+        maps = self._current_velocity_maps(
+            time,
+            quadrature,
+            kind,
+            (valence_band, conduction_band),
+            include_charge,
+            band_selection_mode,
+            state_selection_algorithm,
+        )
+        vx_v, vy_v = maps[valence_band]
+        vx_c, vy_c = maps[conduction_band]
+        occ = np.asarray(occupied, dtype=bool)[..., None]
+        sum_x = vx_v + np.where(occ, vx_c, 0.0)
+        sum_y = vy_v + np.where(occ, vy_c, 0.0)
+        return time, quadrature.integrate(sum_x), quadrature.integrate(sum_y)
 
     def integrate_adaptive_current(
         self,

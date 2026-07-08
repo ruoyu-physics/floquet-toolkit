@@ -13,6 +13,25 @@ from .floquet_state_cache import FloquetStateCache
 CANDIDATE_SUBSPACE_MODE = "central_block_norm"
 
 
+def normalize_bands(bands):
+    """Normalize a band selector into an ordered tuple of distinct band keys.
+
+    Accepts a single band label/index or an iterable of them and always returns
+    a tuple, so the band-keyed dict returned by the grid selection/velocity APIs
+    has predictable keys. A bare ``str`` (e.g. ``"conduction"``) is treated as a
+    single band, not an iterable of characters. Exact-duplicate keys are
+    collapsed while order is preserved; callers must keep distinct keys distinct
+    (``"conduction"`` and its integer index are not deduplicated here).
+    """
+    if isinstance(bands, (str, bytes, int, np.integer)):
+        return (bands,)
+    unique = []
+    for band in bands:
+        if band not in unique:
+            unique.append(band)
+    return tuple(unique)
+
+
 class FloquetStateProvider:
     """Select band-connected states from Floquet eigensystems.
 
@@ -361,56 +380,70 @@ class FloquetStateProvider:
         self,
         kx_flat,
         ky_flat,
-        band="conduction",
+        bands=("conduction",),
         band_selection_mode: str = "overlap",
     ):
-        """Select the band-connected Floquet state independently at each momentum.
+        """Select the band-connected Floquet states independently at each momentum.
 
-        Batches the expensive Floquet-matrix construction/diagonalization over
-        the whole momentum list in one call (when the model supports it), then
-        runs the cheap per-point overlap selection on the precomputed
-        eigensystems. Falls back to the per-momentum path for models whose
-        ``Ht`` is not momentum-batchable. The per-point selection result is
+        Diagonalizes the Floquet Hamiltonian once per momentum -- batched over
+        the whole momentum list in a single call when the model supports it --
+        and then runs the cheap per-point overlap selection for every requested
+        band against that same eigensystem. Because the eigensystem already
+        contains every band, requesting several bands adds only selection work,
+        not extra diagonalizations. Falls back to the per-momentum path for
+        models whose ``Ht`` is not momentum-batchable (still one diagonalization
+        per point, shared across bands). The per-point selection result is
         identical to calling :meth:`select_floquet_state` at each momentum.
 
         Args:
             kx_flat, ky_flat: 1D arrays of momenta, shape ``(n_k,)``.
-            band: Target band label or integer index.
+            bands: A single band label/index or an iterable of them.
             band_selection_mode: State-selection rule; only ``"overlap"``.
 
         Returns:
-            ``(n_k, n_blocks * dimension)`` array of selected extended-space
-            eigenvectors.
+            ``{band: (n_k, n_blocks * dimension)}`` mapping each requested band
+            to its selected extended-space eigenvectors.
         """
+        bands = normalize_bands(bands)
         kx_flat = np.asarray(kx_flat, dtype=float).ravel()
         ky_flat = np.asarray(ky_flat, dtype=float).ravel()
         n_points = kx_flat.size
         n_states = self.n_blocks * self.dimension
-        selected = np.empty((n_points, n_states), dtype=complex)
+        selected = {
+            band: np.empty((n_points, n_states), dtype=complex) for band in bands
+        }
 
         if self.supports_vectorized_time:
             quasi_energy, floquet_states = self.diagonalize_floquet_hamiltonian_batched(
                 kx_flat, ky_flat
             )
             for index in range(n_points):
-                _, _, state = self.select_floquet_state_from_eigensystem(
-                    kx_flat[index],
-                    ky_flat[index],
-                    quasi_energy[index],
-                    floquet_states[index],
-                    band=band,
-                    band_selection_mode=band_selection_mode,
-                )
-                selected[index] = state
+                for band in bands:
+                    _, _, state = self.select_floquet_state_from_eigensystem(
+                        kx_flat[index],
+                        ky_flat[index],
+                        quasi_energy[index],
+                        floquet_states[index],
+                        band=band,
+                        band_selection_mode=band_selection_mode,
+                    )
+                    selected[band][index] = state
         else:
             for index in range(n_points):
-                _, _, state = self.select_floquet_state(
-                    kx_flat[index],
-                    ky_flat[index],
-                    band=band,
-                    band_selection_mode=band_selection_mode,
+                # One diagonalization per point (cached), reused across bands.
+                quasi_energy, floquet_states = self.diagonalize_floquet_hamiltonian(
+                    kx_flat[index], ky_flat[index]
                 )
-                selected[index] = state
+                for band in bands:
+                    _, _, state = self.select_floquet_state_from_eigensystem(
+                        kx_flat[index],
+                        ky_flat[index],
+                        quasi_energy,
+                        floquet_states,
+                        band=band,
+                        band_selection_mode=band_selection_mode,
+                    )
+                    selected[band][index] = state
         return selected
 
     def reconstruct_floquet_states_batched(self, floquet_states_flat, time):
