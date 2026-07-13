@@ -34,149 +34,6 @@ class FloquetCurrentCalculator:
         self.period = driven_hamiltonian.period
         self.cache = cache
 
-    @staticmethod
-    def _adaptive_cache_key(kx: float, ky: float) -> tuple[float, float]:
-        """Return a stable cache key for one sampled momentum."""
-        return (round(float(kx), 15), round(float(ky), 15))
-
-    @staticmethod
-    def _cell_distance_bounds(
-        kx_min: float,
-        kx_max: float,
-        ky_min: float,
-        ky_max: float,
-        k_center=(0.0, 0.0),
-    ) -> tuple[float, float]:
-        """Return the minimum and maximum distance from one cell to the disk center."""
-        cx, cy = k_center
-        closest_x = min(max(cx, kx_min), kx_max)
-        closest_y = min(max(cy, ky_min), ky_max)
-        min_distance = float(np.hypot(closest_x - cx, closest_y - cy))
-
-        corner_distances = [
-            float(np.hypot(kx_min - cx, ky_min - cy)),
-            float(np.hypot(kx_min - cx, ky_max - cy)),
-            float(np.hypot(kx_max - cx, ky_min - cy)),
-            float(np.hypot(kx_max - cx, ky_max - cy)),
-        ]
-        max_distance = max(corner_distances)
-        return min_distance, max_distance
-
-    def _integrate_local_current_adaptive_cartesian(
-        self,
-        current_fn,
-        k_radius: float,
-        k_center=(0.0, 0.0),
-        n_k_points: int = 21,
-        adaptive_tol: float | None = None,
-        adaptive_max_depth: int | None = None,
-    ):
-        """Integrate one local current using adaptive midpoint refinement."""
-        time = self.floquet_params.time_grid(self.period)
-        if n_k_points < 2:
-            raise ValueError("adaptive_cartesian requires n_k_points >= 2.")
-
-        if adaptive_tol is None:
-            adaptive_tol = 1.0e-3
-        if adaptive_max_depth is None:
-            adaptive_max_depth = 6
-
-        cache: dict[tuple[float, float], tuple[np.ndarray, np.ndarray]] = {}
-        zero_trace = np.zeros(time.size, dtype=float)
-        base_cell_width = 2.0 * k_radius / (n_k_points - 1)
-
-        def current_at_point(kx: float, ky: float) -> tuple[np.ndarray, np.ndarray]:
-            key = self._adaptive_cache_key(kx, ky)
-            cached = cache.get(key)
-            if cached is not None:
-                return cached
-            jx_t, jy_t = current_fn(time, kx, ky)
-            value = (np.asarray(jx_t, dtype=float), np.asarray(jy_t, dtype=float))
-            cache[key] = value
-            return value
-
-        def integrate_cell(
-            kx_min: float,
-            kx_max: float,
-            ky_min: float,
-            ky_max: float,
-            depth: int,
-        ) -> tuple[np.ndarray, np.ndarray]:
-            min_distance, max_distance = self._cell_distance_bounds(
-                kx_min,
-                kx_max,
-                ky_min,
-                ky_max,
-                k_center=k_center,
-            )
-            if min_distance >= k_radius:
-                return zero_trace.copy(), zero_trace.copy()
-
-            width_x = kx_max - kx_min
-            width_y = ky_max - ky_min
-            area = width_x * width_y
-            center_kx = 0.5 * (kx_min + kx_max)
-            center_ky = 0.5 * (ky_min + ky_max)
-            coarse_jx_t, coarse_jy_t = current_at_point(center_kx, center_ky)
-            coarse_estimate_jx = coarse_jx_t * area
-            coarse_estimate_jy = coarse_jy_t * area
-
-            if depth >= adaptive_max_depth:
-                return coarse_estimate_jx, coarse_estimate_jy
-
-            half_x = 0.5 * width_x
-            half_y = 0.5 * width_y
-            quarter_area = 0.25 * area
-            child_centers = [
-                (kx_min + 0.5 * half_x, ky_min + 0.5 * half_y),
-                (kx_min + 0.5 * half_x, ky_min + 1.5 * half_y),
-                (kx_min + 1.5 * half_x, ky_min + 0.5 * half_y),
-                (kx_min + 1.5 * half_x, ky_min + 1.5 * half_y),
-            ]
-            fine_estimate_jx = np.zeros(time.size, dtype=float)
-            fine_estimate_jy = np.zeros(time.size, dtype=float)
-            for child_kx, child_ky in child_centers:
-                child_jx_t, child_jy_t = current_at_point(child_kx, child_ky)
-                fine_estimate_jx += child_jx_t * quarter_area
-                fine_estimate_jy += child_jy_t * quarter_area
-
-            error_trace = np.hypot(
-                fine_estimate_jx - coarse_estimate_jx,
-                fine_estimate_jy - coarse_estimate_jy,
-            )
-            cell_error = float(np.max(error_trace))
-            cell_is_fully_inside = max_distance <= k_radius
-            cell_is_small = max(width_x, width_y) <= 0.5 * base_cell_width
-            if cell_is_fully_inside and cell_error <= adaptive_tol:
-                return fine_estimate_jx, fine_estimate_jy
-            if cell_is_small and cell_error <= adaptive_tol:
-                return fine_estimate_jx, fine_estimate_jy
-
-            kx_mid = 0.5 * (kx_min + kx_max)
-            ky_mid = 0.5 * (ky_min + ky_max)
-            quadrants = [
-                (kx_min, kx_mid, ky_min, ky_mid),
-                (kx_min, kx_mid, ky_mid, ky_max),
-                (kx_mid, kx_max, ky_min, ky_mid),
-                (kx_mid, kx_max, ky_mid, ky_max),
-            ]
-            refined_jx = np.zeros(time.size, dtype=float)
-            refined_jy = np.zeros(time.size, dtype=float)
-            for quadrant in quadrants:
-                child_jx, child_jy = integrate_cell(*quadrant, depth + 1)
-                refined_jx += child_jx
-                refined_jy += child_jy
-            return refined_jx, refined_jy
-
-        integrated_jx, integrated_jy = integrate_cell(
-            k_center[0] - k_radius,
-            k_center[0] + k_radius,
-            k_center[1] - k_radius,
-            k_center[1] + k_radius,
-            0,
-        )
-        return time, integrated_jx, integrated_jy
-
     def _current_velocity_maps(
         self,
         time,
@@ -245,6 +102,8 @@ class FloquetCurrentCalculator:
         quadrature: KQuadrature,
         kind: str = "floquet",
         band="conduction",
+        *,
+        time=None,
         include_charge: bool = False,
         band_selection_mode: str = "overlap",
         state_selection_algorithm: str = "pointwise",
@@ -264,6 +123,9 @@ class FloquetCurrentCalculator:
                 Floquet velocity; ``"adiabatic"`` uses the instantaneous-band
                 velocity.
             band: Target band label or integer index.
+            time: Scalar time, 1D time array, or ``None`` for the default Floquet
+                time grid. ``integrated_jx``/``integrated_jy`` are returned per
+                time sample.
             include_charge: Multiply the velocity by the charge to return a
                 charge current.
             band_selection_mode: State-selection rule (``"floquet"`` only).
@@ -272,10 +134,12 @@ class FloquetCurrentCalculator:
                 ``"floquet"`` only; ignored for ``"adiabatic"``.
 
         Returns:
-            Tuple ``(time, integrated_jx, integrated_jy)`` on the default Floquet
-            time grid.
+            Tuple ``(time, integrated_jx, integrated_jy)``; the current arrays
+            share the returned time grid's shape.
         """
-        time = self.floquet_params.time_grid(self.period)
+        if time is None:
+            time = self.floquet_params.time_grid(self.period)
+        time = np.atleast_1d(np.asarray(time, dtype=float))
         maps = self._current_velocity_maps(
             time,
             quadrature,
@@ -291,139 +155,100 @@ class FloquetCurrentCalculator:
     def integrate_occupied_current(
         self,
         quadrature: KQuadrature,
-        occupied,
+        e_fermi,
+        *,
         kind: str = "floquet",
+        time=None,
         include_charge: bool = False,
         band_selection_mode: str = "overlap",
         state_selection_algorithm: str = "pointwise",
-        valence_band="valence",
-        conduction_band="conduction",
+        bands=("valence", "conduction"),
     ):
         """Integrate the total occupied-state current over a k-space quadrature.
 
-        The valence band is treated as filled everywhere and the conduction
-        band only where ``occupied`` is true, so the integrand is
-        ``v_valence + v_conduction * occupied`` -- the two-band, Fermi-surface
-        bounded current. Both bands are obtained from a single diagonalization
-        via :meth:`_current_velocity_maps`.
+        Each band is occupied at ``k`` where its *static* energy is below the
+        Fermi level, ``E_band(k) < e_fermi``. This is the general rule for both
+        signs of ``e_fermi``: for ``e_fermi > 0`` the valence band is filled
+        everywhere and the conduction band only inside its Fermi pockets; for
+        ``e_fermi < 0`` the conduction band is empty and the valence band is
+        filled only outside its hole pockets. No band is assumed full.
+
+        Occupation is masked *before* the expensive Floquet work: static band
+        energies are computed at every sample point (a cheap batched
+        diagonalization), fully empty bands are dropped, and the Floquet
+        diagonalization / velocity evaluation runs only over the union of cells
+        that are occupied in at least one band. Within that union each band's
+        contribution is kept only where that band is occupied, then summed and
+        integrated. Because both bands come from the one union diagonalization,
+        the single-diagonalization sharing is preserved.
 
         Args:
             quadrature: Sample points and local integration measure (weights).
-            occupied: Boolean array matching the quadrature grid shape ``G``,
-                true where the conduction band is occupied (e.g.
-                ``E_conduction(k) < E_F``). Occupation policy (the Fermi level,
-                electron vs hole pockets) is the caller's responsibility.
+            e_fermi: Fermi level (in the model's energy units); may be negative.
             kind: ``"floquet"`` or ``"adiabatic"`` (see :meth:`integrate_current`).
+            time: Scalar time, 1D time array, or ``None`` for the default Floquet
+                time grid. ``integrated_jx``/``integrated_jy`` are returned per
+                time sample.
             include_charge: Multiply the velocity by the charge to return a
                 charge current.
             band_selection_mode: State-selection rule (``"floquet"`` only).
             state_selection_algorithm: ``"tracked"`` or ``"pointwise"``
                 (``"floquet"`` only; ignored for ``"adiabatic"``).
-            valence_band, conduction_band: Band selectors for the two bands.
+            bands: Band selectors considered for occupation (default valence and
+                conduction).
 
         Returns:
-            Tuple ``(time, integrated_jx, integrated_jy)`` on the default Floquet
-            time grid.
+            Tuple ``(time, integrated_jx, integrated_jy)``; the current arrays
+            share the returned time grid's shape.
         """
-        time = self.floquet_params.time_grid(self.period)
+        if time is None:
+            time = self.floquet_params.time_grid(self.period)
+        time = np.atleast_1d(np.asarray(time, dtype=float))
+        bands = normalize_bands(bands)
+
+        kx_flat = np.asarray(quadrature.kx_grid, dtype=float).ravel()
+        ky_flat = np.asarray(quadrature.ky_grid, dtype=float).ravel()
+        weights_flat = np.asarray(quadrature.weights, dtype=float).ravel()
+
+        provider = self.velocity_calculator.state_provider
+        static_energies, _ = provider.diagonalize_static_hamiltonian_batched(
+            kx_flat, ky_flat
+        )
+        reference_energy = static_energies[0]
+        band_masks = {
+            band: static_energies[:, provider.resolve_band_index(reference_energy, band)]
+            < e_fermi
+            for band in bands
+        }
+        occupied_bands = [band for band in bands if band_masks[band].any()]
+
+        zero = np.zeros(time.size, dtype=float)
+        if not occupied_bands:
+            return time, zero.copy(), zero.copy()
+
+        union = np.zeros(kx_flat.size, dtype=bool)
+        for band in occupied_bands:
+            union |= band_masks[band]
+
+        sub_quadrature = KQuadrature(
+            kx_grid=np.ascontiguousarray(kx_flat[union]),
+            ky_grid=np.ascontiguousarray(ky_flat[union]),
+            weights=np.ascontiguousarray(weights_flat[union]),
+        )
         maps = self._current_velocity_maps(
             time,
-            quadrature,
+            sub_quadrature,
             kind,
-            (valence_band, conduction_band),
+            occupied_bands,
             include_charge,
             band_selection_mode,
             state_selection_algorithm,
         )
-        vx_v, vy_v = maps[valence_band]
-        vx_c, vy_c = maps[conduction_band]
-        occ = np.asarray(occupied, dtype=bool)[..., None]
-        sum_x = vx_v + np.where(occ, vx_c, 0.0)
-        sum_y = vy_v + np.where(occ, vy_c, 0.0)
-        return time, quadrature.integrate(sum_x), quadrature.integrate(sum_y)
-
-    def integrate_adaptive_current(
-        self,
-        k_radius: float,
-        kind: str = "floquet",
-        k_center=(0.0, 0.0),
-        n_k_points: int = 21,
-        band="conduction",
-        include_charge: bool = False,
-        band_selection_mode: str = "overlap",
-        state_selection_algorithm: str = "pointwise",
-        adaptive_tol: float | None = None,
-        adaptive_max_depth: int | None = None,
-    ):
-        """Integrate a local current with adaptive Cartesian refinement.
-
-        This is the separate, data-dependent integration engine: the sample
-        points are chosen by recursive midpoint refinement of the integrand, so
-        the region is specified directly by ``k_radius``/``k_center`` rather than
-        by a precomputed quadrature. Use :meth:`integrate_current` for the
-        fixed-quadrature case.
-
-        Args:
-            k_radius: Radius of the circular integration region.
-            kind: Which local current to integrate (``"floquet"`` or
-                ``"adiabatic"``).
-            k_center: Center of the circular region.
-            n_k_points: Sets the base cell width used to stop refinement.
-            band: Target band label or integer index.
-            include_charge: Multiply the velocity by the charge to return a
-                charge current.
-            band_selection_mode: State-selection rule (``"floquet"`` only).
-            state_selection_algorithm: ``"floquet"`` only; adaptive refinement
-                supports ``"pointwise"`` selection (the data-dependent grid is
-                incompatible with grid-wide branch tracking).
-            adaptive_tol: Per-cell error tolerance for refinement.
-            adaptive_max_depth: Maximum recursion depth.
-
-        Returns:
-            Tuple ``(time, integrated_jx, integrated_jy)`` on the default Floquet
-            time grid.
-        """
-        if kind == "floquet":
-            if state_selection_algorithm != "pointwise":
-                raise ValueError(
-                    "Adaptive integration supports "
-                    "state_selection_algorithm='pointwise' only."
-                )
-
-            def current_fn(time, kx, ky):
-                return self.velocity_calculator.compute_floquet_velocity(
-                    time,
-                    kx,
-                    ky,
-                    band=band,
-                    band_selection_mode=band_selection_mode,
-                    include_charge=include_charge,
-                )
-
-        elif kind == "adiabatic":
-
-            def current_fn(time, kx, ky):
-                return np.asarray(
-                    [
-                        self.velocity_calculator.compute_adiabatic_velocity(
-                            t,
-                            kx,
-                            ky,
-                            band=band,
-                            include_charge=include_charge,
-                        )
-                        for t in time
-                    ]
-                ).T
-
-        else:
-            raise ValueError("kind must be 'floquet' or 'adiabatic'.")
-
-        return self._integrate_local_current_adaptive_cartesian(
-            current_fn,
-            k_radius=k_radius,
-            k_center=k_center,
-            n_k_points=n_k_points,
-            adaptive_tol=adaptive_tol,
-            adaptive_max_depth=adaptive_max_depth,
-        )
+        sum_x = np.zeros((int(union.sum()), time.size), dtype=float)
+        sum_y = np.zeros_like(sum_x)
+        for band in occupied_bands:
+            occ = band_masks[band][union][:, None]
+            vx, vy = maps[band]
+            sum_x += np.where(occ, vx, 0.0)
+            sum_y += np.where(occ, vy, 0.0)
+        return time, sub_quadrature.integrate(sum_x), sub_quadrature.integrate(sum_y)

@@ -32,8 +32,8 @@ class FloquetTransportManager:
                 ``cache`` is given. Defaults to ``False``: a single cold pass
                 visits each momentum once, so caching only adds key-building and
                 copy overhead there. Set to ``True`` for workflows that revisit
-                the same momenta — multiple observables sharing a grid, repeated
-                calls, or adaptive refinement — where it gives a large speedup.
+                the same momenta — multiple observables sharing a grid or
+                repeated calls — where it gives a large speedup.
         """
         self.driven_hamiltonian = driven_hamiltonian
         self.floquet_params = floquet_params
@@ -101,6 +101,8 @@ class FloquetTransportManager:
         quadrature: KQuadrature,
         kind: str = "floquet",
         band="conduction",
+        *,
+        time=None,
         include_charge: bool = False,
         band_selection_mode: str = "overlap",
         state_selection_algorithm: str = "pointwise",
@@ -110,45 +112,16 @@ class FloquetTransportManager:
         Build a :class:`~floquet_toolkit.utils.kquadrature.KQuadrature`
         (``KQuadrature.polar``/``KQuadrature.cartesian``, or a custom one) and
         select which current ``kind`` (``"floquet"``/``"adiabatic"``) to
-        integrate. See
+        integrate. ``time`` selects the evaluation times (``None`` uses the
+        default Floquet time grid). See
         :meth:`FloquetCurrentCalculator.integrate_current` for details.
         """
         return self.current_calculator.integrate_current(
             quadrature,
             kind=kind,
             band=band,
+            time=time,
             include_charge=include_charge,
             band_selection_mode=band_selection_mode,
             state_selection_algorithm=state_selection_algorithm,
-        )
-
-    def integrate_adaptive_current(
-        self,
-        k_radius,
-        kind: str = "floquet",
-        k_center=(0.0, 0.0),
-        n_k_points=21,
-        band="conduction",
-        include_charge=False,
-        band_selection_mode: str = "overlap",
-        state_selection_algorithm: str = "pointwise",
-        adaptive_tol: float | None = None,
-        adaptive_max_depth: int | None = None,
-    ):
-        """Integrate a local current with adaptive Cartesian refinement.
-
-        The data-dependent counterpart of :meth:`integrate_current`; see
-        :meth:`FloquetCurrentCalculator.integrate_adaptive_current`.
-        """
-        return self.current_calculator.integrate_adaptive_current(
-            k_radius,
-            kind=kind,
-            k_center=k_center,
-            n_k_points=n_k_points,
-            band=band,
-            include_charge=include_charge,
-            band_selection_mode=band_selection_mode,
-            state_selection_algorithm=state_selection_algorithm,
-            adaptive_tol=adaptive_tol,
-            adaptive_max_depth=adaptive_max_depth,
         )
